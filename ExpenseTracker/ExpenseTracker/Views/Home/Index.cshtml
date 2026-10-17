@@ -1,0 +1,368 @@
+@{
+    ViewData["Title"] = "Overview";
+}
+
+<div class="container-fluid">
+    <h1 class="page-title">
+        <i class="fas fa-chart-line"></i> Overview
+    </h1>
+
+    <!-- Month Selector -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="overview-card">
+                <div class="d-flex justify-content-between align-items-center">
+                    @{
+                        int prevMonth = ViewBag.SelectedMonth == 1 ? 12 : ViewBag.SelectedMonth - 1;
+                        int prevYear = ViewBag.SelectedMonth == 1 ? ViewBag.SelectedYear - 1 : ViewBag.SelectedYear;
+                        int nextMonth = ViewBag.SelectedMonth == 12 ? 1 : ViewBag.SelectedMonth + 1;
+                        int nextYear = ViewBag.SelectedMonth == 12 ? ViewBag.SelectedYear + 1 : ViewBag.SelectedYear;
+                        var currentMonthName = new DateTime(ViewBag.SelectedYear, ViewBag.SelectedMonth, 1).ToString("MMMM yyyy");
+                    }
+
+                    <a href="?month=@prevMonth&year=@prevYear" class="btn btn-outline-primary">
+                        <i class="fas fa-chevron-left"></i> Previous
+                    </a>
+
+                    <h4 class="mb-0">
+                        <i class="fas fa-calendar-alt"></i> @currentMonthName
+                    </h4>
+
+                    <a href="?month=@nextMonth&year=@nextYear" class="btn btn-outline-primary">
+                        Next <i class="fas fa-chevron-right"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Cards Row -->
+    <div class="row">
+        <!-- Total Income Card -->
+        <div class="col-md-4">
+            <div class="overview-card income-card">
+                <div class="card-icon">
+                    <i class="fas fa-arrow-up"></i>
+                </div>
+                <p class="card-title">Total Income</p>
+                <h2 class="card-value">@ViewBag.CurrencySymbol @ViewBag.TotalIncome.ToString("N2")</h2>
+                <small class="text-muted">for @currentMonthName</small>
+            </div>
+        </div>
+
+        <!-- Total Expense Card -->
+        <div class="col-md-4">
+            <div class="overview-card expense-card">
+                <div class="card-icon">
+                    <i class="fas fa-arrow-down"></i>
+                </div>
+                <p class="card-title">Total Expense</p>
+                <h2 class="card-value">@ViewBag.CurrencySymbol @ViewBag.TotalExpense.ToString("N2")</h2>
+                <small class="text-muted">for @currentMonthName</small>
+            </div>
+        </div>
+
+        <!-- Balance Card -->
+        <div class="col-md-4">
+            <div class="overview-card balance-card">
+                <div class="card-icon">
+                    <i class="fas fa-wallet"></i>
+                </div>
+                <p class="card-title">Balance</p>
+                <h2 class="card-value">@ViewBag.CurrencySymbol @ViewBag.Balance.ToString("N2")</h2>
+                <small class="text-muted">for @currentMonthName</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="row mt-4">
+        <!-- Income vs Expense Bar Chart -->
+        <div class="col-md-6">
+            <div class="overview-card">
+                <h3 style="margin-bottom: 20px;">
+                    <i class="fas fa-chart-bar"></i> Income vs Expense - @currentMonthName
+                </h3>
+                <canvas id="incomeExpenseChart" style="max-height: 250px;"></canvas>
+            </div>
+        </div>
+
+        <!-- Expense by Category Doughnut Chart -->
+        <div class="col-md-6">
+            <div class="overview-card">
+                <h3 style="margin-bottom: 20px;">
+                    <i class="fas fa-chart-pie"></i> Expense by Category - @currentMonthName
+                </h3>
+                @if (ViewBag.ExpenseByCategory != null && ViewBag.ExpenseByCategory.Count > 0)
+                {
+                    <canvas id="expenseCategoryChart" style="max-height: 250px;"></canvas>
+                }
+                else
+                {
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i> No expense data for @currentMonthName. Start adding expenses or select a different month!
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- Monthly Trend Line Chart -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="overview-card">
+                <h3 style="margin-bottom: 20px;">
+                    <i class="fas fa-chart-line"></i> 6-Month Trend (ending @currentMonthName)
+                </h3>
+                <canvas id="monthlyTrendChart" style="max-height: 200px;"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Transactions Section -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="overview-card">
+                <h3 style="margin-bottom: 20px;">
+                    <i class="fas fa-history"></i> Recent Transactions - @currentMonthName
+                </h3>
+
+                @if (ViewBag.RecentTransactions != null && ViewBag.RecentTransactions.Count > 0)
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Type</th>
+                                    <th>Category</th>
+                                    <th>Description</th>
+                                    <th class="text-end">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var transaction in ViewBag.RecentTransactions)
+                                {
+                                    <tr>
+                                        <td>@transaction.Date.ToString("MMM dd, yyyy")</td>
+                                        <td>
+                                            @if (transaction.Type == "Income")
+                                            {
+                                                <span class="badge bg-success">Income</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-danger">Expense</span>
+                                            }
+                                        </td>
+                                        <td>@transaction.Category</td>
+                                        <td>@(transaction.Description ?? "-")</td>
+                                        <td class="text-end">
+                                            <strong style="color: @(transaction.Type == "Income" ? "#27ae60" : "#e74c3c")">
+                                                @ViewBag.CurrencySymbol @transaction.Amount.ToString("N2")
+                                            </strong>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i> No transactions for @currentMonthName. Start by adding your first income or expense, or select a different month!
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+
+@section Scripts {
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script>
+        // Store currency symbol
+        var currencySymbol = '@Html.Raw(ViewBag.CurrencySymbol)';
+
+        // Helper function to format currency
+        function formatCurrency(value) {
+            if (value >= 1000000) {
+                return currencySymbol + (value / 1000000).toFixed(1) + 'M';
+            } else if (value >= 1000) {
+                return currencySymbol + (value / 1000).toFixed(0) + 'K';
+            }
+            return currencySymbol + value.toFixed(0);
+        }
+
+        // Income vs Expense Bar Chart
+        const incomeExpenseCtx = document.getElementById('incomeExpenseChart');
+        if (incomeExpenseCtx) {
+            new Chart(incomeExpenseCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['Income', 'Expense'],
+                    datasets: [{
+                        label: 'Amount',
+                        data: [@ViewBag.TotalIncome, @ViewBag.TotalExpense],
+                        backgroundColor: [
+                            'rgba(39, 174, 96, 0.8)',
+                            'rgba(231, 76, 60, 0.8)'
+                        ],
+                        borderColor: [
+                            'rgba(39, 174, 96, 1)',
+                            'rgba(231, 76, 60, 1)'
+                        ],
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return 'Amount: ' + currencySymbol + context.parsed.y.toLocaleString();
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return formatCurrency(value);
+                                },
+                                font: { size: 10 },
+                                maxTicksLimit: 5
+                            }
+                        },
+                        x: {
+                            ticks: { font: { size: 12 } }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Expense by Category Doughnut Chart
+        @if (ViewBag.ExpenseByCategory != null && ViewBag.ExpenseByCategory.Count > 0)
+        {
+                    <text>
+                const expenseCategoryCtx = document.getElementById('expenseCategoryChart');
+                if (expenseCategoryCtx) {
+                    const categoryData = @Html.Raw(Json.Serialize(ViewBag.ExpenseByCategory));
+
+                    new Chart(expenseCategoryCtx, {
+                        type: 'doughnut',
+                        data: {
+                            labels: categoryData.map(item => item.category),
+                            datasets: [{
+                                data: categoryData.map(item => item.amount),
+                                backgroundColor: [
+                                    'rgba(231, 76, 60, 0.8)',
+                                    'rgba(52, 152, 219, 0.8)',
+                                    'rgba(241, 196, 15, 0.8)',
+                                    'rgba(155, 89, 182, 0.8)',
+                                    'rgba(26, 188, 156, 0.8)',
+                                    'rgba(230, 126, 34, 0.8)',
+                                    'rgba(149, 165, 166, 0.8)',
+                                    'rgba(192, 57, 43, 0.8)'
+                                ],
+                                borderWidth: 2
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    position: 'right',
+                                    labels: { font: { size: 11 } }
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(context) {
+                                            return context.label + ': ' + currencySymbol + context.parsed.toLocaleString();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+                    </text>
+        }
+
+        // Monthly Trend Line Chart
+        const monthlyTrendCtx = document.getElementById('monthlyTrendChart');
+        if (monthlyTrendCtx) {
+            const monthlyData = @Html.Raw(Json.Serialize(ViewBag.MonthlyData));
+
+            new Chart(monthlyTrendCtx, {
+                type: 'line',
+                data: {
+                    labels: monthlyData.map(item => item.month),
+                    datasets: [
+                        {
+                            label: 'Income',
+                            data: monthlyData.map(item => item.income),
+                            borderColor: 'rgba(39, 174, 96, 1)',
+                            backgroundColor: 'rgba(39, 174, 96, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        },
+                        {
+                            label: 'Expense',
+                            data: monthlyData.map(item => item.expense),
+                            borderColor: 'rgba(231, 76, 60, 1)',
+                            backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: { font: { size: 12 } }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + currencySymbol + context.parsed.y.toLocaleString();
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return formatCurrency(value);
+                                },
+                                font: { size: 10 },
+                                maxTicksLimit: 5
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 0,
+                                font: { size: 10 }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+}
