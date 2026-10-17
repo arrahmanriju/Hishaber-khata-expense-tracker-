@@ -2,14 +2,14 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-# Copy solution and csproj
-COPY ExpenseTracker.sln ./
-COPY ExpenseTracker/ExpenseTracker.csproj ./ExpenseTracker/
-RUN dotnet restore ExpenseTracker/ExpenseTracker.csproj
+# Copy solution and project file preserving exact repo folder hierarchy
+COPY ExpenseTracker/ExpenseTracker.sln ./ExpenseTracker/
+COPY ExpenseTracker/ExpenseTracker/ExpenseTracker.csproj ./ExpenseTracker/ExpenseTracker/
+RUN dotnet restore ExpenseTracker/ExpenseTracker/ExpenseTracker.csproj
 
-# Copy everything else and publish
-COPY . ./
-RUN dotnet publish ExpenseTracker/ExpenseTracker.csproj -c Release -o /app/publish
+# Copy the rest of the source code and publish
+COPY ExpenseTracker/ ./ExpenseTracker/
+RUN dotnet publish ExpenseTracker/ExpenseTracker/ExpenseTracker.csproj -c Release -o /app/publish
 
 # Runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
