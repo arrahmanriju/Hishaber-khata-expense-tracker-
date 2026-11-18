@@ -1,23 +1,17 @@
-# Build stage
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-# Copy csproj and restore
-COPY *.csproj ./
-RUN dotnet restore
-
-# Copy everything and publish
+COPY ExpenseTracker.csproj ./
+RUN dotnet restore ExpenseTracker.csproj
 COPY . ./
-RUN dotnet publish -c Release -o /app/publish
+RUN dotnet publish ExpenseTracker.csproj -c Release --no-restore -o /app/publish -p:UseAppHost=false
 
-# Runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
+ENV ASPNETCORE_ENVIRONMENT=Production \
+    HOME=/home/app \
+    PORT=10000
+EXPOSE 10000
 COPY --from=build /app/publish .
-
-# Railway sets PORT env variable
-ENV ASPNETCORE_URLS=http://+:${PORT:-8080}
-ENV ASPNETCORE_ENVIRONMENT=Production
-
-EXPOSE 8080
+USER $APP_UID
 ENTRYPOINT ["dotnet", "ExpenseTracker.dll"]

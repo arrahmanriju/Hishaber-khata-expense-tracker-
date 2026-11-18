@@ -183,6 +183,10 @@ This is a server-rendered MVC app, so it exposes pages and form actions rather t
 
 ## Deployment
 
+For a Render Free Docker Web Service, follow the [Render deployment guide](docs/render-deployment.md) for MySQL TLS setup, environment variables, database initialization, and session persistence.
+
+### Other hosts
+
 1. Build the existing Dockerfile for Railway, or publish with `dotnet publish -c Release`.
 2. Configure `ConnectionStrings__DefaultConnection` as a deployment secret. Railway's `MYSQL_URL` is also supported. Use a least-privilege database account for runtime and rotate any credential previously stored in the repository.
 3. Apply the reviewed migration separately with a deployment credential. The app starts without applying migrations automatically.

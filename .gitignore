@@ -1,0 +1,13 @@
+# Local configuration, credentials, and database backups
+.env
+.env.*
+secrets/
+secrets.json
+appsettings.Local.json
+appsettings.*.local.json
+*.pem
+*.pfx
+*.p12
+*.key
+DataProtection-Keys/
+*.dump
