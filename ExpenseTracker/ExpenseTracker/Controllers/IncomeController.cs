@@ -15,11 +15,22 @@ namespace ExpenseTracker.Controllers
         }
 
         // GET: Income Page
+        [HttpGet]
         public async Task<IActionResult> Index(int? month, int? year)
+        {
+            if (!IsValidPeriod(month ?? DateTime.Now.Month, year ?? DateTime.Now.Year))
+                return BadRequest("Invalid report period.");
+
+            return await LoadIndex(month, year, new TransactionInput { Date = DateTime.Today });
+        }
+
+        private async Task<IActionResult> LoadIndex(int? month, int? year, TransactionInput input)
         {
             // Default to current month and year if not provided
             int selectedMonth = month ?? DateTime.Now.Month;
             int selectedYear = year ?? DateTime.Now.Year;
+            if (selectedMonth is < 1 or > 12 || selectedYear is < 1001 or > 9998)
+                return BadRequest("Invalid report period.");
 
             // Filter incomes for the selected month and year
             var incomes = await _context.Transactions
@@ -46,50 +57,37 @@ namespace ExpenseTracker.Controllers
             ViewBag.SelectedMonth = selectedMonth;
             ViewBag.SelectedYear = selectedYear;
 
-            return View(incomes);
+            ViewBag.Incomes = incomes;
+            return View("Index", input);
         }
 
-        // POST: Add Income
+
         [HttpPost]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> AddIncome(Transaction transaction)
+        public async Task<IActionResult> AddIncome(TransactionInput input, int? month, int? year)
         {
-            if (ModelState.IsValid)
-            {
-                transaction.Type = "Income";
-                transaction.CreatedAt = DateTime.Now;
+            ValidateTransaction(input, "Income");
+            if (!ModelState.IsValid)
+                return await LoadIndex(month, year, input);
 
-                _context.Add(transaction);
-                await _context.SaveChangesAsync();
-                TempData["SuccessMessage"] = "Income added successfully!";
-                return RedirectToAction("Index", "Home");
-            }
-
-            // If validation fails, return to the same page with current month data
-            int currentMonth = DateTime.Now.Month;
-            int currentYear = DateTime.Now.Year;
-
-            var incomes = await _context.Transactions
-                .Where(t => t.Type == "Income"
-                    && t.Date.Month == currentMonth
-                    && t.Date.Year == currentYear)
-                .OrderByDescending(t => t.Date)
-                .ToListAsync();
-
-            return View("Index", incomes);
+            var income = new Transaction { Type = "Income", UserId = OwnerId };
+            ApplyTransactionInput(income, input);
+            _context.Transactions.Add(income);
+            await _context.SaveChangesAsync();
+            TempData["SuccessMessage"] = "Income added successfully!";
+            return ReturnToPeriod(nameof(Index), "Income", income.Date.Month, income.Date.Year);
         }
 
-        // GET: Delete Income
-        public async Task<IActionResult> DeleteIncome(int id)
+        [HttpPost]
+        public async Task<IActionResult> DeleteIncome(int id, int? month, int? year)
         {
-            var transaction = await _context.Transactions.FindAsync(id);
-            if (transaction != null)
-            {
-                _context.Transactions.Remove(transaction);
-                await _context.SaveChangesAsync();
-                TempData["SuccessMessage"] = "Income deleted successfully!";
-            }
-            return RedirectToAction("Index");
+            var ownerId = OwnerId;
+            var deleted = await _context.Transactions
+                .Where(t => t.UserId == ownerId && t.TransactionId == id && t.Type == "Income")
+                .ExecuteDeleteAsync();
+            if (deleted == 0)
+                return NotFound();
+            TempData["SuccessMessage"] = "Income deleted successfully!";
+            return ReturnToPeriod(nameof(Index), "Income", month, year);
         }
     }
 }

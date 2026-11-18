@@ -1,163 +1,57 @@
-﻿@model ExpenseTracker.Models.UserSettings
-
+@model SettingsInput
 @{
     ViewData["Title"] = "Settings";
+    var symbol = (string)ViewBag.CurrencySymbol;
+    var budget = (decimal)ViewBag.SavedBudget;
+    var spent = (decimal)ViewBag.MonthlyExpense;
+    var remaining = (decimal)ViewBag.BudgetRemaining;
+    var percentage = (decimal)ViewBag.BudgetPercentage;
 }
-
-<div class="container-fluid">
-    <h1 class="page-title">
-        <i class="fas fa-cog"></i> Settings
-    </h1>
-
-    @if (TempData["SuccessMessage"] != null)
-    {
-        <div class="alert alert-success alert-dismissible fade show" role="alert">
-            <i class="fas fa-check-circle"></i> @TempData["SuccessMessage"]
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-    }
-
-    <form asp-action="UpdateSettings" method="post">
-        <input type="hidden" asp-for="SettingsId" />
-
-        <!-- User Profile Section -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="overview-card">
-                    <h3 style="margin-bottom: 20px;">
-                        <i class="fas fa-user"></i> User Profile
-                    </h3>
-
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label asp-for="UserName" class="form-label">Name</label>
-                                <input asp-for="UserName" class="form-control" placeholder="Enter your name" required />
-                                <span asp-validation-for="UserName" class="text-danger"></span>
-                            </div>
-                        </div>
-
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label asp-for="Email" class="form-label">Email</label>
-                                <input asp-for="Email" class="form-control" type="email" placeholder="Enter your email" />
-                                <span asp-validation-for="Email" class="text-danger"></span>
-                            </div>
-                        </div>
-                    </div>
+<div class="page-intro"><div><h1>Settings</h1><p>Manage your profile, currency and monthly budget.</p></div></div>
+<div class="insights-grid">
+    <form class="surface form-panel" asp-action="UpdateSettings" method="post">
+        <div asp-validation-summary="ModelOnly" class="validation-summary" role="alert"></div>
+        <fieldset class="settings-section">
+            <legend>Profile</legend>
+            <div class="field-grid">
+                <div class="field"><label asp-for="UserName">Display name</label><input asp-for="UserName" class="form-control" autocomplete="name" /><span asp-validation-for="UserName" class="field-error"></span></div>
+                <div class="field"><label asp-for="Email">Profile email <span class="field-unit">Optional</span></label><input asp-for="Email" type="email" class="form-control" autocomplete="email" /><span asp-validation-for="Email" class="field-error"></span></div>
+            </div>
+        </fieldset>
+        <fieldset class="settings-section">
+            <legend>Money preferences</legend>
+            <div class="field-grid">
+                <div class="field">
+                    <label asp-for="Currency">Display currency</label>
+                    <select asp-for="Currency" class="form-select" aria-describedby="currency-note">
+                        <option value="BDT">BDT &middot; Bangladeshi taka</option><option value="USD">USD &middot; US dollar</option><option value="EUR">EUR &middot; Euro</option><option value="GBP">GBP &middot; British pound</option><option value="INR">INR &middot; Indian rupee</option>
+                    </select>
+                    <small id="currency-note">Changes the display symbol only.</small><span asp-validation-for="Currency" class="field-error"></span>
+                </div>
+                <div class="field">
+                    <label asp-for="MonthlyBudget">Monthly budget <span class="field-unit">@symbol</span></label>
+                    <input asp-for="MonthlyBudget" type="number" step="0.01" min="0" inputmode="decimal" class="form-control" aria-describedby="budget-note" />
+                    <small id="budget-note">Set to zero to turn off the budget.</small><span asp-validation-for="MonthlyBudget" class="field-error"></span>
                 </div>
             </div>
-        </div>
-
-        <!-- Budget Limits Section -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="overview-card">
-                    <h3 style="margin-bottom: 20px;">
-                        <i class="fas fa-coins"></i> Monthly Budget Limit
-                    </h3>
-
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label asp-for="MonthlyBudget" class="form-label">Set Monthly Budget (@ViewBag.CurrencySymbol)</label>
-                                <input asp-for="MonthlyBudget" class="form-control" type="number" step="0.01" min="0" placeholder="Enter monthly budget" />
-                                <span asp-validation-for="MonthlyBudget" class="text-danger"></span>
-                                <small class="form-text text-muted">Set a monthly spending limit to track your expenses better</small>
-                            </div>
-                        </div>
-                    </div>
-
-                    @if (Model.MonthlyBudget > 0)
-                    {
-                        var percentage = ViewBag.BudgetPercentage;
-                        var progressColor = percentage >= 90 ? "danger" : (percentage >= 70 ? "warning" : "success");
-
-                        <div class="alert alert-info mt-3">
-                            <h5><i class="fas fa-chart-line"></i> Current Month Budget Status</h5>
-                            <div class="row mt-3">
-                                <div class="col-md-4">
-                                    <strong>Budget:</strong> @ViewBag.CurrencySymbol @Model.MonthlyBudget.ToString("N2")
-                                </div>
-                                <div class="col-md-4">
-                                    <strong>Spent:</strong> @ViewBag.CurrencySymbol @ViewBag.MonthlyExpense.ToString("N2")
-                                </div>
-                                <div class="col-md-4">
-                                    <strong>Remaining:</strong> @ViewBag.CurrencySymbol @ViewBag.BudgetRemaining.ToString("N2")
-                                </div>
-                            </div>
-                            <div class="progress mt-3" style="height: 25px;">
-                                <div class="progress-bar bg-@progressColor" role="progressbar"
-                                     style="width: @percentage%"
-                                     aria-valuenow="@percentage" aria-valuemin="0" aria-valuemax="100">
-                                    @percentage.ToString("F1")% Used
-                                </div>
-                            </div>
-
-                            @if (percentage >= 90)
-                            {
-                                <div class="alert alert-danger mt-3 mb-0">
-                                    <i class="fas fa-exclamation-triangle"></i> <strong>Warning!</strong> You've used over 90% of your monthly budget!
-                                </div>
-                            }
-                            else if (percentage >= 70)
-                            {
-                                <div class="alert alert-warning mt-3 mb-0">
-                                    <i class="fas fa-info-circle"></i> You've used over 70% of your monthly budget. Consider tracking your expenses carefully.
-                                </div>
-                            }
-                        </div>
-                    }
-                </div>
-            </div>
-        </div>
-
-        <!-- Currency Settings Section -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="overview-card">
-                    <h3 style="margin-bottom: 20px;">
-                        <i class="fas fa-money-bill-wave"></i> Currency Settings
-                    </h3>
-
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label asp-for="Currency" class="form-label">Select Currency</label>
-                                <select asp-for="Currency" class="form-select" required>
-                                    <option value="BDT">BDT - Bangladeshi Taka (@ViewBag.CurrencySymbol)</option>
-                                    <option value="USD">USD - US Dollar ($)</option>
-                                    <option value="EUR">EUR - Euro (€)</option>
-                                    <option value="GBP">GBP - British Pound (£)</option>
-                                    <option value="INR">INR - Indian Rupee (₹)</option>
-                                </select>
-                                <span asp-validation-for="Currency" class="text-danger"></span>
-                                <small class="form-text text-muted">Current: @Model.Currency (@Model.CurrencySymbol)</small>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Save Button -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="d-grid gap-2">
-                    <button type="submit" class="btn btn-primary btn-lg">
-                        <i class="fas fa-save"></i> Save Settings
-                    </button>
-                    <a href="@Url.Action("Index", "Home")" class="btn btn-outline-secondary">
-                        <i class="fas fa-arrow-left"></i> Back to Overview
-                    </a>
-                </div>
-            </div>
-        </div>
+        </fieldset>
+        <div class="form-actions"><button class="button button-primary" type="submit">Save settings</button></div>
     </form>
+    <section class="surface budget" aria-labelledby="budget-title">
+        <header class="section-head"><div><h2 id="budget-title">This month’s budget</h2><p>Based on recorded expenses</p></div></header>
+        @if (budget > 0)
+        {
+            <div class="budget-detail">
+                <strong class="money @(remaining < 0 ? "negative" : "")">@symbol @remaining.ToString("N2")</strong><p>Remaining</p>
+                <meter min="0" max="100" value="@Math.Clamp(percentage, 0, 100).ToString(System.Globalization.CultureInfo.InvariantCulture)" aria-label="Budget used"></meter>
+                <dl><div><dt>Spent</dt><dd>@symbol @spent.ToString("N2")</dd></div><div><dt>Budget</dt><dd>@symbol @budget.ToString("N2")</dd></div></dl>
+                <p>@percentage.ToString("N0")% used</p>
+            </div>
+        }
+        else
+        {
+            <p class="inline-empty">Set a monthly budget to see how much you have left to spend.</p>
+        }
+    </section>
 </div>
-
-@section Scripts {
-    @{
-        await Html.RenderPartialAsync("_ValidationScriptsPartial");
-    }
-}
+@section Scripts { <partial name="_ValidationScriptsPartial" /> }

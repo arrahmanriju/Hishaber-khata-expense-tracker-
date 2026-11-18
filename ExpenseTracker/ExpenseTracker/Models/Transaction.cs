@@ -6,12 +6,13 @@ namespace ExpenseTracker.Models
     {
         [Key]
         public int TransactionId { get; set; }
+        public string? UserId { get; set; }
 
         [Required]
-        public string Type { get; set; } // "Income" or "Expense"
+        public string Type { get; set; } = string.Empty; // "Income" or "Expense"
 
         [Required]
-        public string Category { get; set; } // e.g., "Salary", "Food", "Transport"
+        public string Category { get; set; } = string.Empty; // e.g., "Salary", "Food", "Transport"
 
         [Required]
         public decimal Amount { get; set; }

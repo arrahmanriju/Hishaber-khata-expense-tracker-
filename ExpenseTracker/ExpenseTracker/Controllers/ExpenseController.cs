@@ -14,28 +14,22 @@ namespace ExpenseTracker.Controllers
             _context = context;
         }
 
-        // GET: Add Expense Page
-        public IActionResult AddExpense()
-        {
-            return View();
-        }
+        [HttpGet]
+        public IActionResult AddExpense() => View(new TransactionInput { Date = DateTime.Today });
 
-        // POST: Save Expense
         [HttpPost]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> AddExpense(Transaction transaction)
+        public async Task<IActionResult> AddExpense(TransactionInput input)
         {
-            if (ModelState.IsValid)
-            {
-                transaction.Type = "Expense";
-                transaction.CreatedAt = DateTime.Now;
+            ValidateTransaction(input, "Expense");
+            if (!ModelState.IsValid)
+                return View(input);
 
-                _context.Add(transaction);
-                await _context.SaveChangesAsync();
-                TempData["SuccessMessage"] = "Expense added successfully!";
-                return RedirectToAction("Index", "Home");
-            }
-            return View(transaction);
+            var expense = new Transaction { Type = "Expense", UserId = OwnerId };
+            ApplyTransactionInput(expense, input);
+            _context.Transactions.Add(expense);
+            await _context.SaveChangesAsync();
+            TempData["SuccessMessage"] = "Expense added successfully!";
+            return ReturnToPeriod(nameof(HomeController.Index), "Home", expense.Date.Month, expense.Date.Year);
         }
 
         // GET: Fixed Expense Page
@@ -44,6 +38,8 @@ namespace ExpenseTracker.Controllers
             // Default to current month and year if not provided
             int selectedMonth = month ?? DateTime.Now.Month;
             int selectedYear = year ?? DateTime.Now.Year;
+            if (!IsValidPeriod(selectedMonth, selectedYear))
+                return BadRequest("Invalid report period.");
 
             // Filter fixed expenses for the selected month and year
             var fixedExpenses = await _context.Transactions
@@ -77,17 +73,18 @@ namespace ExpenseTracker.Controllers
             return View(fixedExpenses);
         }
 
-        // GET: Delete Fixed Expense
-        public async Task<IActionResult> DeleteFixedExpense(int id)
+
+        [HttpPost]
+        public async Task<IActionResult> DeleteFixedExpense(int id, int? month, int? year)
         {
-            var transaction = await _context.Transactions.FindAsync(id);
-            if (transaction != null)
-            {
-                _context.Transactions.Remove(transaction);
-                await _context.SaveChangesAsync();
-                TempData["SuccessMessage"] = "Fixed expense deleted successfully!";
-            }
-            return RedirectToAction("FixedExpense");
+            var ownerId = OwnerId;
+            var deleted = await _context.Transactions
+                .Where(t => t.UserId == ownerId && t.TransactionId == id && t.Type == "Expense" && t.IsFixed)
+                .ExecuteDeleteAsync();
+            if (deleted == 0)
+                return NotFound();
+            TempData["SuccessMessage"] = "Fixed expense deleted successfully!";
+            return ReturnToPeriod(nameof(FixedExpense), "Expense", month, year);
         }
     }
 }

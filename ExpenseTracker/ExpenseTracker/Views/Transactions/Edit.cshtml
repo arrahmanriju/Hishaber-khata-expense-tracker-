@@ -1,0 +1,18 @@
+@model TransactionInput
+@{
+    var type = (string)ViewBag.TransactionType;
+    ViewData["Title"] = $"Edit {type.ToLowerInvariant()}";
+    ViewData["TransactionKind"] = type;
+    ViewData["OriginalCategory"] = (string)ViewBag.OriginalCategory;
+}
+<div class="page-intro"><div><h1>@ViewData["Title"]</h1><p>Update the details for this transaction.</p></div></div>
+<section class="surface form-panel narrow">
+    <form asp-action="Edit" asp-route-id="@ViewBag.TransactionId" method="post">
+        <partial name="_TransactionFields" model="Model" />
+        <div class="form-actions">
+            <button class="button button-primary" type="submit">Save changes</button>
+            <a class="button button-secondary" asp-controller="MonthlyOverview" asp-action="Index" asp-route-month="@Model.Date?.Month" asp-route-year="@Model.Date?.Year">Cancel</a>
+        </div>
+    </form>
+</section>
+@section Scripts { <partial name="_ValidationScriptsPartial" /> }

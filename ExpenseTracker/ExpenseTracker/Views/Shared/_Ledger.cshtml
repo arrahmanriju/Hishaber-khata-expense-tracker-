@@ -1,0 +1,87 @@
+@model IEnumerable<Transaction>
+@{
+    var rows = Model.ToList();
+    var mode = ViewData["LedgerMode"] as string ?? "monthly";
+    var symbol = (string)ViewBag.CurrencySymbol;
+    var listTitle = ViewData["LedgerTitle"] as string ?? "Transactions";
+    var recent = mode == "recent";
+    var canDelete = mode is "income" or "fixed";
+}
+<section class="surface ledger" aria-labelledby="ledger-heading" data-ledger>
+    <header class="section-head">
+        <div><h2 id="ledger-heading">@listTitle</h2><p>@rows.Count @(rows.Count == 1 ? "entry" : "entries")</p></div>
+        @if (recent)
+        {
+            <a class="button button-secondary" asp-controller="MonthlyOverview" asp-action="Index" asp-route-month="@ViewBag.SelectedMonth" asp-route-year="@ViewBag.SelectedYear">View transactions</a>
+        }
+    </header>
+    @if (rows.Count == 0)
+    {
+        <div class="empty-state">
+            <span class="empty-icon"><partial name="_Icon" model="@("ledger")" /></span>
+            <h3>@(mode == "income" ? "No income this month" : mode == "fixed" ? "No fixed expenses this month" : "No transactions this month")</h3>
+            <p>@(mode == "income" ? "Add income to start tracking what came in." : mode == "fixed" ? "Mark an expense as fixed to include it here." : "Add income or an expense to see it here.")</p>
+            @if (mode == "income")
+            {
+                <a class="button button-secondary" href="#add-income">Add income</a>
+            }
+            else
+            {
+                <a class="button button-secondary" asp-controller="Expense" asp-action="AddExpense">Add expense</a>
+            }
+        </div>
+    }
+    else
+    {
+        @if (!recent)
+        {
+            <div class="ledger-tools" hidden>
+                <label class="search-control"><partial name="_Icon" model="@("search")" /><span class="visually-hidden">Search transactions</span><input type="search" placeholder="Search transactions" data-search /></label>
+                <label class="visually-hidden" for="ledger-category">Category</label>
+                <select id="ledger-category" class="form-select" data-category>
+                    <option value="">All categories</option>
+                    @foreach (var category in rows.Select(row => row.Category).Distinct().OrderBy(category => category))
+                    {
+                        <option value="@category">@category</option>
+                    }
+                </select>
+                @if (mode == "monthly")
+                {
+                    <label class="visually-hidden" for="ledger-type">Transaction type</label>
+                    <select id="ledger-type" class="form-select" data-type><option value="">All types</option><option>Income</option><option>Expense</option></select>
+                }
+                <span class="visually-hidden" role="status" data-filter-count></span>
+            </div>
+        }
+        <table class="ledger-table">
+            <thead><tr><th scope="col">Transaction</th><th scope="col">Date</th><th scope="col">Type</th><th scope="col" class="amount-cell">Amount</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+            <tbody>
+            @foreach (var row in rows)
+            {
+                var income = row.Type == "Income";
+                var signedAmount = income ? row.Amount : -row.Amount;
+                <tr data-entry data-category="@row.Category" data-type="@row.Type" data-text="@($"{row.Category} {row.Description} {row.Date:d}")">
+                    <td class="entry-cell">
+                        <span class="entry-icon"><partial name="_Icon" model="@(income ? "income" : "expense")" /></span>
+                        <div><strong>@row.Category</strong>@if (!string.IsNullOrWhiteSpace(row.Description)) { <small>@row.Description</small> }</div>
+                    </td>
+                    <td class="date-cell"><time datetime="@row.Date.ToString("yyyy-MM-dd")">@row.Date.ToString("dd MMM yyyy")</time></td>
+                    <td class="type-cell"><span>@row.Type</span>@if (row.IsFixed && !income) { <small>Fixed</small> }</td>
+                    <td class="amount-cell money @(income ? "positive" : "negative")">@(signedAmount < 0 ? "−" : signedAmount > 0 ? "+" : "")@symbol @Math.Abs(signedAmount).ToString("N2")</td>
+                    <td class="actions-cell">
+                        <a class="text-action" asp-controller="Transactions" asp-action="Edit" asp-route-id="@row.TransactionId" aria-label="Edit @row.Category transaction">Edit</a>
+                        @if (canDelete)
+                        {
+                            <form asp-controller="@(mode == "income" ? "Income" : "Expense")" asp-action="@(mode == "income" ? "DeleteIncome" : "DeleteFixedExpense")" asp-route-id="@row.TransactionId" asp-route-month="@ViewBag.SelectedMonth" asp-route-year="@ViewBag.SelectedYear" method="post" data-confirm-delete>
+                                <button class="text-action danger-action" type="submit" aria-label="Delete @row.Category transaction" disabled>Delete</button>
+                            </form>
+                        }
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+        @if (canDelete) { <noscript><p class="inline-empty">Enable JavaScript to confirm a deletion.</p></noscript> }
+        <div class="empty-state filter-empty" data-filter-empty hidden><h3>No matching transactions</h3><p>Try another search or clear a filter.</p><button class="button button-secondary" type="button" data-clear>Clear filters</button></div>
+    }
+</section>

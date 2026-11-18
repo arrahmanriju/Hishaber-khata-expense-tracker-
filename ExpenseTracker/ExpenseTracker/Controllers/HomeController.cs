@@ -19,6 +19,8 @@ namespace ExpenseTracker.Controllers
             // Default to current month and year if not provided
             int selectedMonth = month ?? DateTime.Now.Month;
             int selectedYear = year ?? DateTime.Now.Year;
+            if (!IsValidPeriod(selectedMonth, selectedYear))
+                return BadRequest("Invalid report period.");
 
             // Get all transactions for the selected month
             var transactions = await _context.Transactions

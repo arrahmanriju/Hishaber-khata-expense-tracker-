@@ -1,59 +1,85 @@
 using ExpenseTracker.Data;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using MySqlConnector;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Bind to Railway's PORT environment variable
-var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
-builder.WebHost.UseUrls($"http://+:{port}");
-
-// Build connection string: prefer Railway env vars, fall back to appsettings.json
-var connectionString = Environment.GetEnvironmentVariable("MYSQL_URL")
-    ?? Environment.GetEnvironmentVariable("DATABASE_URL")
-    ?? builder.Configuration.GetConnectionString("DefaultConnection");
-
-// Railway MYSQL_URL may use mysql:// URI format — convert to ADO.NET format
-if (connectionString != null && connectionString.StartsWith("mysql://"))
+var port = Environment.GetEnvironmentVariable("PORT");
+if (!string.IsNullOrWhiteSpace(port))
 {
-    var uri = new Uri(connectionString);
-    var userInfo = uri.UserInfo.Split(':');
-    connectionString = $"Server={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};User={userInfo[0]};Password={userInfo[1]};";
+    builder.WebHost.UseUrls($"http://+:{port}");
 }
 
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseMySql(connectionString!, ServerVersion.AutoDetect(connectionString!)));
+builder.Services.AddDbContext<ApplicationDbContext>((services, options) =>
+{
+    var configuration = services.GetRequiredService<IConfiguration>();
+    var connectionString = configuration.GetConnectionString("DefaultConnection")
+        ?? Environment.GetEnvironmentVariable("MYSQL_URL")
+        ?? Environment.GetEnvironmentVariable("DATABASE_URL");
+    if (string.IsNullOrWhiteSpace(connectionString))
+    {
+        throw new InvalidOperationException("Configure ConnectionStrings:DefaultConnection or MYSQL_URL.");
+    }
 
-// Add services to the container.
-builder.Services.AddControllersWithViews();
+    if (Uri.TryCreate(connectionString, UriKind.Absolute, out var uri) && uri.Scheme == "mysql")
+    {
+        var credentials = uri.UserInfo.Split(':', 2);
+        connectionString = new MySqlConnectionStringBuilder
+        {
+            Server = uri.Host,
+            Port = (uint)(uri.IsDefaultPort ? 3306 : uri.Port),
+            Database = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/')),
+            UserID = Uri.UnescapeDataString(credentials[0]),
+            Password = credentials.Length == 2 ? Uri.UnescapeDataString(credentials[1]) : ""
+        }.ConnectionString;
+    }
 
-// Add HttpContextAccessor for accessing DbContext in views
+    options.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0)));
+});
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddIdentity<IdentityUser, IdentityRole>(options => options.User.RequireUniqueEmail = true)
+    .AddEntityFrameworkStores<ApplicationDbContext>();
+builder.Services.ConfigureApplicationCookie(options =>
+{
+    options.LoginPath = "/Account/Login";
+    options.Cookie.HttpOnly = true;
+    options.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
+        ? CookieSecurePolicy.SameAsRequest
+        : CookieSecurePolicy.Always;
+});
+builder.Services.AddAuthorizationBuilder()
+    .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+builder.Services.AddControllersWithViews(options =>
+    options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute()));
+builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
-// Auto-apply pending migrations on startup
+// Validate database configuration during startup without opening a connection.
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    db.Database.Migrate();
+    _ = scope.ServiceProvider.GetRequiredService<DbContextOptions<ApplicationDbContext>>();
 }
 
-// Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Home/Error");
-    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
 }
 
 app.UseStaticFiles();
-
 app.UseRouting();
-
+app.UseAuthentication();
 app.UseAuthorization();
 
+app.MapHealthChecks("/health").AllowAnonymous();
 app.MapControllerRoute(
     name: "default",
     pattern: "{controller=Home}/{action=Index}/{id?}");
 
 app.Run();
+
+public partial class Program { }

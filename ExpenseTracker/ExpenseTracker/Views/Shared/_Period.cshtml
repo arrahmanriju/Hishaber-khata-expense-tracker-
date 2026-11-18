@@ -1,0 +1,34 @@
+@model ValueTuple<int, int>
+@{
+    var selected = new DateTime(Model.Item2, Model.Item1, 1);
+    var previous = selected.AddMonths(-1);
+    var next = selected.AddMonths(1);
+}
+<nav class="period" aria-label="Reporting month">
+    @if (previous.Year >= 1001)
+    {
+        <a asp-route-month="@previous.Month" asp-route-year="@previous.Year" aria-label="Previous month"><partial name="_Icon" model="@("left")" /></a>
+    }
+    <span data-period-label><partial name="_Icon" model="@("calendar")" /> @selected.ToString("MMMM yyyy")</span>
+    @if (ViewData["PeriodJump"] is true)
+    {
+        var choices = (IEnumerable<dynamic>)ViewBag.MonthYearOptions;
+        var includesSelected = choices.Any(choice => (int)choice.Month == selected.Month && (int)choice.Year == selected.Year);
+        <select class="form-select period-select" data-month-jump aria-label="Jump to month" hidden>
+            @if (!includesSelected)
+            {
+                <option value="" selected>@selected.ToString("MMMM yyyy")</option>
+            }
+            @foreach (var choice in choices)
+            {
+                var choiceMonth = (int)choice.Month;
+                var choiceYear = (int)choice.Year;
+                <option value="@Url.Action("Index", new { month = choiceMonth, year = choiceYear })" selected="@(choiceMonth == selected.Month && choiceYear == selected.Year)">@choice.Display</option>
+            }
+        </select>
+    }
+    @if (next.Year <= 9998)
+    {
+        <a asp-route-month="@next.Month" asp-route-year="@next.Year" aria-label="Next month"><partial name="_Icon" model="@("right")" /></a>
+    }
+</nav>

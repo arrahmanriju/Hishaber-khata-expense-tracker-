@@ -1,0 +1,31 @@
+@model IEnumerable<dynamic>
+@{
+    var rows = Model.ToList();
+    var label = ViewData["BreakdownTitle"] as string ?? "By category";
+    var symbol = (string)ViewBag.CurrencySymbol;
+    var hasTotal = ViewData["BreakdownUsesTotal"] is true;
+    var showCount = ViewData["BreakdownShowsCount"] is true;
+    var amounts = rows.Select(row => hasTotal ? (decimal)row.Total : (decimal)row.Amount).ToList();
+    var total = amounts.Sum();
+}
+<section class="surface breakdown">
+    <header class="section-head"><div><h2>@label</h2></div></header>
+    @if (rows.Count == 0)
+    {
+        <p class="inline-empty">No entries to break down for this period.</p>
+    }
+    else
+    {
+        <ul class="breakdown-list">
+            @for (var i = 0; i < rows.Count; i++)
+            {
+                var row = rows[i];
+                var share = total == 0 ? 0 : Math.Clamp(amounts[i] / total * 100, 0, 100);
+                <li>
+                    <div><span>@row.Category @if (showCount) { <small>(@row.Count)</small> }</span><strong class="money">@symbol @amounts[i].ToString("N2")</strong></div>
+                    <meter min="0" max="100" value="@share.ToString(System.Globalization.CultureInfo.InvariantCulture)" aria-label="@($"{row.Category} share")"></meter>
+                </li>
+            }
+        </ul>
+    }
+</section>
