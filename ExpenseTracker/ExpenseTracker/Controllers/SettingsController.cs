@@ -2,97 +2,90 @@ using ExpenseTracker.Data;
 using ExpenseTracker.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using MySqlConnector;
 
-namespace ExpenseTracker.Controllers
+namespace ExpenseTracker.Controllers;
+
+public class SettingsController(ApplicationDbContext context) : BaseController(context)
 {
-    public class SettingsController : BaseController
+    [HttpGet]
+    public async Task<IActionResult> Index()
     {
-        private readonly ApplicationDbContext _context;
-
-        public SettingsController(ApplicationDbContext context) : base(context)
+        var settings = await Context.UserSettings.AsNoTracking().SingleOrDefaultAsync();
+        var input = settings is null ? new SettingsInput() : new SettingsInput
         {
-            _context = context;
+            UserName = settings.UserName,
+            Email = settings.Email,
+            MonthlyBudget = settings.MonthlyBudget,
+            Currency = settings.Currency
+        };
+
+        return await SettingsView(input, input.MonthlyBudget);
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> UpdateSettings(SettingsInput input)
+    {
+        var settings = await Context.UserSettings.SingleOrDefaultAsync();
+        if (decimal.Round(input.MonthlyBudget, 2) != input.MonthlyBudget)
+            ModelState.AddModelError(nameof(input.MonthlyBudget), "Enter up to two decimal places.");
+
+        if (!ModelState.IsValid)
+            return await SettingsView(input, settings?.MonthlyBudget ?? 0);
+
+        if (settings is null)
+        {
+            settings = new UserSettings { UserId = OwnerId };
+            Context.UserSettings.Add(settings);
         }
 
-        // GET: Settings Page
-        public async Task<IActionResult> Index()
+        ApplySettings(settings, input);
+        try
         {
-            // Get or create default settings
-            var settings = await _context.UserSettings.FirstOrDefaultAsync();
-            
-            if (settings == null)
-            {
-                // Create default settings if none exist
-                settings = new UserSettings
-                {
-                    UserName = "User",
-                    Email = "",
-                    MonthlyBudget = 0,
-                    Currency = "BDT",
-                    CurrencySymbol = "৳"
-                };
-                _context.UserSettings.Add(settings);
-                await _context.SaveChangesAsync();
-            }
-
-            // Calculate budget usage
-            var currentMonth = DateTime.Now.Month;
-            var currentYear = DateTime.Now.Year;
-            
-            var monthlyExpense = await _context.Transactions
-                .Where(t => t.Type == "Expense" 
-                    && t.Date.Month == currentMonth 
-                    && t.Date.Year == currentYear)
-                .SumAsync(t => t.Amount);
-
-            ViewBag.MonthlyExpense = monthlyExpense;
-            ViewBag.BudgetRemaining = settings.MonthlyBudget - monthlyExpense;
-            ViewBag.BudgetPercentage = settings.MonthlyBudget > 0 
-                ? (monthlyExpense / settings.MonthlyBudget * 100) 
-                : 0;
-
-            return View(settings);
+            await Context.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (Context.Entry(settings).State == EntityState.Added
+            && ex.InnerException is MySqlException { ErrorCode: MySqlErrorCode.DuplicateKeyEntry })
+        {
+            // Another request created the settings row while this request was saving.
+            Context.Entry(settings).State = EntityState.Detached;
+            var existing = await Context.UserSettings.SingleAsync();
+            ApplySettings(existing, input);
+            await Context.SaveChangesAsync();
         }
 
-        // POST: Update Settings
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> UpdateSettings(UserSettings settings)
+        TempData["SuccessMessage"] = "Settings updated successfully!";
+        return RedirectToAction(nameof(Index));
+    }
+
+    private async Task<IActionResult> SettingsView(SettingsInput input, decimal savedBudget)
+    {
+        var today = DateTime.Today;
+        var monthlyExpense = await Context.Transactions
+            .Where(t => t.Type == "Expense" && t.Date.Month == today.Month && t.Date.Year == today.Year)
+            .SumAsync(t => t.Amount);
+
+        ViewBag.MonthlyExpense = monthlyExpense;
+        ViewBag.SavedBudget = savedBudget;
+        ViewBag.BudgetRemaining = savedBudget - monthlyExpense;
+        ViewBag.BudgetPercentage = savedBudget > 0 ? monthlyExpense / savedBudget * 100 : 0m;
+        return View("Index", input);
+    }
+
+    private static void ApplySettings(UserSettings settings, SettingsInput input)
+    {
+        settings.UserName = input.UserName;
+        settings.Email = input.Email;
+        settings.MonthlyBudget = input.MonthlyBudget;
+        settings.Currency = input.Currency;
+        settings.CurrencySymbol = input.Currency switch
         {
-            if (ModelState.IsValid)
-            {
-                var existingSettings = await _context.UserSettings.FirstOrDefaultAsync();
-                
-                if (existingSettings != null)
-                {
-                    existingSettings.UserName = settings.UserName;
-                    existingSettings.Email = settings.Email;
-                    existingSettings.MonthlyBudget = settings.MonthlyBudget;
-                    existingSettings.Currency = settings.Currency;
-                    
-                    // Update currency symbol based on selection
-                    existingSettings.CurrencySymbol = settings.Currency switch
-                    {
-                        "BDT" => "৳",
-                        "USD" => "$",
-                        "EUR" => "€",
-                        "GBP" => "£",
-                        "INR" => "₹",
-                        _ => "৳"
-                    };
-                    
-                    existingSettings.UpdatedAt = DateTime.Now;
-                    
-                    _context.Update(existingSettings);
-                    await _context.SaveChangesAsync();
-                    
-                    TempData["SuccessMessage"] = "Settings updated successfully!";
-                }
-                
-                return RedirectToAction("Index");
-            }
-            
-            return View("Index", settings);
-        }
+            "USD" => "$",
+            "EUR" => "€",
+            "GBP" => "£",
+            "INR" => "₹",
+            _ => "৳"
+        };
+        settings.UpdatedAt = DateTime.Now;
     }
 }

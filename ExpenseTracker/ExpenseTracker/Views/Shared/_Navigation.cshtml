@@ -1,0 +1,21 @@
+@{
+    var current = ViewContext.RouteData.Values["controller"]?.ToString();
+    var currentAction = ViewContext.RouteData.Values["action"]?.ToString();
+    var links = new[]
+    {
+        (Controller: "Home", Action: "Index", Text: "Overview", Icon: "overview"),
+        (Controller: "MonthlyOverview", Action: "Index", Text: "Transactions", Icon: "ledger"),
+        (Controller: "Income", Action: "Index", Text: "Income", Icon: "income"),
+        (Controller: "Expense", Action: "FixedExpense", Text: "Fixed expenses", Icon: "fixed"),
+        (Controller: "Settings", Action: "Index", Text: "Settings", Icon: "settings")
+    };
+}
+<nav class="sidebar-nav" aria-label="Main navigation">
+    @foreach (var link in links)
+    {
+        var active = link.Controller == current && link.Action == currentAction;
+        <a class="nav-entry" asp-controller="@link.Controller" asp-action="@link.Action" aria-current="@(active ? "page" : null)">
+            <partial name="_Icon" model="link.Icon" /> @link.Text
+        </a>
+    }
+</nav>

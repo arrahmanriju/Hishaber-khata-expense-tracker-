@@ -13,8 +13,9 @@ Expense Tracker gives one place to log income and expenses, mark recurring (fixe
 ## Features
 
 - **Dashboard:** total income, total expense, and balance for the selected month, with a 6-month income vs. expense trend and category charts
-- **Add expenses:** categories include Food, Transport, Shopping, Entertainment, Health, Education, Bills, Rent, and Other
-- **Add income:** categories include Salary, Business, Freelance, Investment, Gift, Bonus, and Other
+- **Accounts:** register, log in, and log out. Dashboards, reports, transactions, and settings are scoped to the signed-in account.
+- **Add and edit expenses:** categories include Food, Transport, Shopping, Entertainment, Health, Education, Bills, Rent, and Other
+- **Add and edit income:** categories include Salary, Business, Freelance, Investment, Gift, Bonus, and Other
 - **Fixed expenses:** mark an expense as recurring and view fixed expenses by month with category totals
 - **Monthly overview:** view all transactions for any of the last 12 months, with income and expense breakdowns by category
 - **Excel export:** download a monthly report with a Summary sheet and an All Transactions sheet (built with ClosedXML)
@@ -42,8 +43,14 @@ flowchart LR
 
 ```mermaid
 erDiagram
+    ASP_NET_USERS ||--o{ TRANSACTIONS : owns
+    ASP_NET_USERS ||--o| USER_SETTINGS : owns
+    ASP_NET_USERS {
+        string Id PK
+    }
     TRANSACTIONS {
         int TransactionId PK
+        string UserId FK "nullable legacy owner"
         string Type "Income or Expense"
         string Category
         decimal Amount
@@ -54,6 +61,7 @@ erDiagram
     }
     USER_SETTINGS {
         int SettingsId PK
+        string UserId FK "nullable legacy owner"
         string UserName
         string Email "nullable"
         string ProfilePicture "nullable"
@@ -64,7 +72,7 @@ erDiagram
     }
 ```
 
-The two tables are independent. There is a single settings row for the whole app, and transactions are not linked to a user.
+ASP.NET Core Identity stores accounts in the same database. Both tables carry an owner ID, and each account can have one settings row.
 
 ## Tech Stack
 
@@ -103,47 +111,47 @@ ExpenseTracker/
     └── Program.cs
 ```
 
-## Demo Credentials
+## Run locally from VS Code
 
-This app has no login, so there are no demo credentials. Open the app and start adding transactions. The first visit to **Settings** creates the default settings (user name, BDT currency, budget 0).
+Install the .NET 8 SDK and start MySQL 8. From the repository root in PowerShell, configure a local database account and run:
 
-For the database connection you need your own local MySQL account: `<your-mysql-username>` / `<your-mysql-password>`.
-
-## Run and Tests
-
-**Prerequisites**
-- .NET 8 SDK
-- MySQL Server running locally
-
-**1. Clone the repository**
-```bash
-git clone https://github.com/arrahmanriju/ExpenseTracker.git
-cd ExpenseTracker/ExpenseTracker
+```powershell
+$project = '.\ExpenseTracker\ExpenseTracker\ExpenseTracker.csproj'
+$db = Get-Credential -Message 'Enter your MySQL username and password'
+$connection = [System.Data.Common.DbConnectionStringBuilder]::new()
+$connection['Server'] = '127.0.0.1'
+$connection['Database'] = 'ExpenseDB'
+$connection['User ID'] = $db.UserName
+$connection['Password'] = $db.GetNetworkCredential().Password
+@{ 'ConnectionStrings:DefaultConnection' = $connection.ConnectionString } |
+    ConvertTo-Json -Compress |
+    dotnet user-secrets set --project $project
+dotnet tool restore
+dotnet tool run dotnet-ef -- database update --project $project -- --environment Development
+dotnet run --project $project
 ```
 
-**2. Configure the database connection**
+Open <http://localhost:8080> and register an account. Run the migration with an account permitted to modify the schema. Use a least-privilege account for the running application wherever migration privileges can be separated.
 
-Edit `ExpenseTracker/appsettings.json`:
-```json
-"ConnectionStrings": {
-  "DefaultConnection": "Server=localhost;Database=ExpenseDB;User=<your-mysql-username>;Password=<your-mysql-password>;"
-}
+### Verify Phase 1
+
+The integration tests use MySQL 8. Set `EXPENSETRACKER_TEST_MYSQL` to the connection string for a test-only server with permission to create schemas. The suite creates two uniquely named `expense_tracker_test_*` schemas per run and leaves them available for inspection.
+
+```powershell
+$project = '.\ExpenseTracker\ExpenseTracker\ExpenseTracker.csproj'
+$solution = '.\ExpenseTracker\ExpenseTracker.sln'
+dotnet tool restore
+dotnet build $solution
+dotnet test $solution --no-build -- RunConfiguration.TreatNoTestsAsError=true
+dotnet tool run dotnet-ef -- migrations has-pending-model-changes --project $project -- --environment Development
+dotnet tool run dotnet-ef -- migrations script 20260118182451_AddUserSettings --project $project --output "$env:TEMP/expense-tracker-phase1.sql" -- --environment Development
 ```
 
-**3. Apply migrations**
-```bash
-cd ExpenseTracker
-dotnet ef database update
-```
-This creates the `ExpenseDB` tables. If `dotnet ef` is not installed, run `dotnet tool install --global dotnet-ef` first.
+### Upgrade an existing database
 
-**4. Run the app**
-```bash
-dotnet run
-```
-Then open `http://localhost:5210` in your browser.
+Back up your database and rehearse the upgrade against a restored copy. The migration adds Identity tables, nullable owner columns, foreign keys, and indexes. Existing IDs, transaction values, and settings remain in place. Rows with a null owner are hidden from signed-in users. Assign legacy rows only after confirming ownership and reviewing a repeatable backfill for the intended account.
 
-**Tests:** this project has no automated tests yet. See Next Improvements.
+During rollout, take the old app offline before applying the reviewed migration. Verify row counts, totals, and ownership on the restored copy before applying the migration to the live database.
 
 ## API Overview
 
@@ -154,23 +162,25 @@ This is a server-rendered MVC app, so it exposes pages and form actions rather t
 | `/` or `/Home/Index?month=&year=` | GET | Dashboard for a month |
 | `/Expense/AddExpense` | GET, POST | Show the form / save an expense |
 | `/Expense/FixedExpense?month=&year=` | GET | Fixed expenses for a month |
-| `/Expense/DeleteFixedExpense/{id}` | GET | Delete a fixed expense |
+| `/Expense/DeleteFixedExpense/{id}` | POST | Delete an owned fixed expense |
 | `/Income/Index?month=&year=` | GET | Income list and form for a month |
 | `/Income/AddIncome` | POST | Save an income |
-| `/Income/DeleteIncome/{id}` | GET | Delete an income |
+| `/Income/DeleteIncome/{id}` | POST | Delete an owned income |
+| `/Transactions/Edit/{id}` | GET, POST | Edit owned income or expense |
 | `/MonthlyOverview/Index?month=&year=` | GET | All transactions for a month |
 | `/MonthlyOverview/ExportToExcel?month=&year=` | GET | Download the Excel report |
 | `/Settings/Index` | GET | View settings and budget usage |
 | `/Settings/UpdateSettings` | POST | Save settings |
+| `/Account/Register`, `/Account/Login` | GET, POST | Register or sign in |
+| `/Account/Logout` | POST | Sign out |
+| `/health` | GET | Anonymous health probe |
 
 ## Deployment
 
-The app is currently run locally. To host it:
-
-1. Publish the app with `dotnet publish -c Release`.
-2. Deploy to a host that supports ASP.NET Core, such as Azure App Service or a Windows/Linux server with IIS or Nginx.
-3. Provide a hosted MySQL database and set `ConnectionStrings__DefaultConnection` as an environment variable instead of keeping it in `appsettings.json`.
-4. Run `dotnet ef database update` against the production database.
+1. Build the existing Dockerfile for Railway, or publish with `dotnet publish -c Release`.
+2. Configure `ConnectionStrings__DefaultConnection` as a deployment secret. Railway's `MYSQL_URL` is also supported. Use a least-privilege database account for runtime and rotate any credential previously stored in the repository.
+3. Apply the reviewed migration separately with a deployment credential. The app starts without applying migrations automatically.
+4. Serve the app over HTTPS and use `/health` for the host health probe. Persist ASP.NET Core Data Protection keys across restarts where users need sessions to survive redeployment.
 
 ## Key Decisions
 
@@ -183,23 +193,14 @@ The app is currently run locally. To host it:
 
 ## Known Limitations
 
-- No authentication or multiple users; all data is shared in one database
-- Budget settings are a single row, so there is no per-category budget
-- Delete actions use GET requests instead of POST, which is less safe
-- Fixed expenses are entered manually each month and are not created automatically
-- No edit option for existing transactions
-- No automated tests
-- The database password is stored in `appsettings.json` for local development
+- Fixed expenses are flagged entries and still need to be entered for each month.
+- Currency settings change the display symbol. Historical amounts retain their original numeric values.
+- Legacy rows need an explicit ownership assignment before they appear in the app.
 
 ## Next Improvements
 
-- User registration and login with per-user data
-- Edit transactions and make delete actions POST requests
-- Automatically create fixed expenses every month
-- Per-category budgets and alerts when a budget is exceeded
-- Unit and integration tests
-- Cloud deployment with secrets in environment variables
-- Custom categories
+- Automatically create fixed expenses for each month.
+- Add per-category budgets and alerts.
 
 ## Contributing
 

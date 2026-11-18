@@ -1,4 +1,4 @@
-﻿using ClosedXML.Excel;
+using ClosedXML.Excel;
 using DocumentFormat.OpenXml.ExtendedProperties;
 using ExpenseTracker.Data;
 using Microsoft.AspNetCore.Mvc;
@@ -10,10 +10,12 @@ namespace ExpenseTracker.Controllers
     public class MonthlyOverviewController : BaseController
     {
         private readonly ApplicationDbContext _context;
+        private readonly ILogger<MonthlyOverviewController> _logger;
 
-        public MonthlyOverviewController(ApplicationDbContext context) : base(context)
+        public MonthlyOverviewController(ApplicationDbContext context, ILogger<MonthlyOverviewController> logger) : base(context)
         {
             _context = context;
+            _logger = logger;
         }
 
         public async Task<IActionResult> Index(int? month, int? year)
@@ -21,6 +23,8 @@ namespace ExpenseTracker.Controllers
             // Default to current month if not specified
             var selectedMonth = month ?? DateTime.Now.Month;
             var selectedYear = year ?? DateTime.Now.Year;
+            if (!IsValidPeriod(selectedMonth, selectedYear))
+                return BadRequest("Invalid report period.");
 
             // Get all transactions for selected month
             var transactions = await _context.Transactions
@@ -92,8 +96,11 @@ namespace ExpenseTracker.Controllers
             return View();
         }
 
+        [HttpGet]
         public async Task<IActionResult> ExportToExcel(int month, int year)
         {
+            if (!IsValidPeriod(month, year))
+                return BadRequest("Invalid report period.");
             try
             {
                 // Get all transactions for selected month
@@ -287,7 +294,8 @@ namespace ExpenseTracker.Controllers
             catch (Exception ex)
             {
                 // If export fails, redirect back with error message
-                TempData["ErrorMessage"] = $"Failed to export: {ex.Message}";
+                _logger.LogError(ex, "Excel export failed. Request {RequestId}", HttpContext.TraceIdentifier);
+                TempData["ErrorMessage"] = "Unable to export the report. Please try again.";
                 return RedirectToAction("Index", new { month = month, year = year });
             }
         }

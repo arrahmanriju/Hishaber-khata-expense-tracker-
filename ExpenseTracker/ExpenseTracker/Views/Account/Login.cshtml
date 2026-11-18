@@ -1,0 +1,16 @@
+@model LoginInput
+@{ ViewData["Title"] = "Log in"; }
+<section class="auth-flow" aria-labelledby="auth-heading">
+    <header><h1 id="auth-heading">Log in</h1><p>Open your ledger to track income and expenses.</p></header>
+    <div class="surface auth-surface">
+        <form asp-action="Login" method="post">
+            <div asp-validation-summary="ModelOnly" class="validation-summary" role="alert"></div>
+            <input asp-for="ReturnUrl" type="hidden" />
+            <div class="field"><label asp-for="Email"></label><input asp-for="Email" class="form-control" autocomplete="username" /><span asp-validation-for="Email" class="field-error"></span></div>
+            <div class="field"><label asp-for="Password"></label><input asp-for="Password" class="form-control" autocomplete="current-password" /><span asp-validation-for="Password" class="field-error"></span></div>
+            <button class="button button-primary" type="submit">Log in</button>
+        </form>
+    </div>
+    <p class="auth-switch">New to Hishaber Khata? <a asp-action="Register" asp-route-returnUrl="@Model.ReturnUrl">Create an account</a></p>
+</section>
+@section Scripts { <partial name="_ValidationScriptsPartial" /> }
