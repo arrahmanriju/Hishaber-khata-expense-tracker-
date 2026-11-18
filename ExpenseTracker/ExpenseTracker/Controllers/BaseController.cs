@@ -1,11 +1,13 @@
 using ExpenseTracker.Data;
 using ExpenseTracker.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.EntityFrameworkCore;
 
 namespace ExpenseTracker.Controllers
 {
+    [Authorize]
     [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public abstract class BaseController : Controller
     {

@@ -2,9 +2,13 @@ using ExpenseTracker.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using MySqlConnector;
 
 namespace ExpenseTracker.Controllers;
 
+[Authorize]
+[ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 public class AccountController(UserManager<IdentityUser> users, SignInManager<IdentityUser> signIn) : Controller
 {
     [AllowAnonymous, HttpGet]
@@ -17,7 +21,18 @@ public class AccountController(UserManager<IdentityUser> users, SignInManager<Id
             return View(input);
 
         var user = new IdentityUser { UserName = input.Email, Email = input.Email };
-        var result = await users.CreateAsync(user, input.Password);
+        IdentityResult result;
+        try
+        {
+            result = await users.CreateAsync(user, input.Password);
+        }
+        catch (DbUpdateException exception) when (
+            exception.InnerException is MySqlException { ErrorCode: MySqlErrorCode.DuplicateKeyEntry })
+        {
+            // The unique username index resolves concurrent registrations for the same email.
+            result = IdentityResult.Failed(users.ErrorDescriber.DuplicateUserName(input.Email));
+        }
+
         if (result.Succeeded)
         {
             await signIn.SignInAsync(user, isPersistent: false);

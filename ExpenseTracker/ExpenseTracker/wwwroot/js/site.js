@@ -48,7 +48,7 @@ if (monthJump) {
     });
 }
 
-for (const details of document.querySelectorAll(".quick-add, .mobile-more")) {
+for (const details of document.querySelectorAll(".quick-add, .mobile-more, .account-menu")) {
     details.addEventListener("keydown", event => {
         if (event.key === "Escape" && details.open) {
             details.open = false;

@@ -15,7 +15,9 @@ public class LoginInput
 
 public class RegisterInput : LoginInput
 {
-    [Required, DataType(DataType.Password), Compare(nameof(Password))]
+    public const int MinimumPasswordLength = 12;
+
+    [Required, DataType(DataType.Password), StringLength(128), Compare(nameof(Password))]
     [Display(Name = "Confirm password")]
     public string ConfirmPassword { get; set; } = "";
 }

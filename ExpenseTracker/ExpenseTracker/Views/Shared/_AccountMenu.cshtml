@@ -1,0 +1,8 @@
+@if (!string.IsNullOrWhiteSpace(User.Identity?.Name))
+{
+    <p class="account-menu-identity">@User.Identity.Name</p>
+}
+<a asp-controller="Settings" asp-action="Index"><partial name="_Icon" model="@("settings")" /> Settings</a>
+<form asp-controller="Account" asp-action="Logout" method="post">
+    <button type="submit"><partial name="_Icon" model="@("logout")" /> Log out</button>
+</form>

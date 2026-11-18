@@ -153,6 +153,12 @@ Back up your database and rehearse the upgrade against a restored copy. The migr
 
 During rollout, take the old app offline before applying the reviewed migration. Verify row counts, totals, and ownership on the restored copy before applying the migration to the live database.
 
+### Assign legacy transactions and settings
+
+Confirm the destination account with the data owner and resolve its sign-in email to its Identity user ID. Prepare a reviewed list of unassigned transaction IDs and settings row IDs for each destination account. Record transaction counts and totals for each group before asking the data owner to approve the assignment. A new registration grants access only to records owned by that account.
+
+Back up the database and rehearse the approved assignment on a restored copy. Apply the assignments in a separate transaction that updates only rows whose owner is still null. If an account already has settings, preserve both records and resolve the conflict explicitly before assigning the legacy settings row. Check that the updated counts and totals match the approved list and that other accounts see only their own data. Keep ambiguous records unassigned.
+
 ## API Overview
 
 This is a server-rendered MVC app, so it exposes pages and form actions rather than a JSON API.

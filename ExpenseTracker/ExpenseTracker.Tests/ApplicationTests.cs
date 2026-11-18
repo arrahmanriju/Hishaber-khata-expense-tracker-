@@ -3,15 +3,17 @@ using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using ClosedXML.Excel;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Net.Http.Headers;
 using Xunit;
 
 namespace ExpenseTracker.Tests;
 
 public sealed class ApplicationTests(MySqlFixture app) : IClassFixture<MySqlFixture>
 {
-    private static readonly string Password = "TrackerTest!45";
+    private static readonly string Password = CreatePassword();
     private static readonly DateTime ReportDate = DateTime.Today;
     private static string Period => $"month={ReportDate.Month}&year={ReportDate.Year}";
     private static string Monthly => $"/MonthlyOverview?{Period}";
@@ -30,20 +32,101 @@ public sealed class ApplicationTests(MySqlFixture app) : IClassFixture<MySqlFixt
         }
 
         var email = await Register(client);
-        await VerifyStatus(client.GetAsync("/"), HttpStatusCode.OK);
+        using (var overview = await VerifyStatus(client.GetAsync("/"), HttpStatusCode.OK))
+        {
+            var html = await overview.Content.ReadAsStringAsync();
+            Assert.Contains("class=\"account-menu\"", html);
+            Assert.Contains(email, html);
+        }
         await VerifyStatus(client.GetAsync("/Account/Logout"), HttpStatusCode.MethodNotAllowed);
         await VerifyStatus(client.PostAsync("/Account/Logout", null), HttpStatusCode.BadRequest);
         await VerifyStatus(Post(client, "/Account/Logout", "/"), HttpStatusCode.Redirect);
         await VerifyStatus(client.GetAsync("/"), HttpStatusCode.Redirect);
 
         using var invalidLogin = await VerifyStatus(Post(client, "/Account/Login", "/Account/Login",
-            ("Email", email), ("Password", "Incorrect!5")), HttpStatusCode.OK);
+            ("Email", email), ("Password", CreatePassword())), HttpStatusCode.OK);
         Assert.Contains("Unable to sign in", await invalidLogin.Content.ReadAsStringAsync());
         using var login = await VerifyStatus(Post(client, "/Account/Login", "/Account/Login",
             ("Email", email), ("Password", Password), ("ReturnUrl", "https://example.com")),
             HttpStatusCode.Redirect);
         Assert.Equal("/", login.Headers.Location!.OriginalString);
+        var cookie = Assert.Single(SetCookieHeaderValue.ParseList(login.Headers.GetValues("Set-Cookie").ToList()),
+            value => value.Name.Value == ".AspNetCore.Identity.Application");
+        Assert.True(cookie.HttpOnly);
+        Assert.True(cookie.Secure);
+        Assert.Equal(SameSiteMode.Lax, cookie.SameSite);
         await VerifyStatus(client.GetAsync("/"), HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task RegistrationRejectsInvalidAndDuplicateAccountsAndStoresAPasswordHash()
+    {
+        using var client = NewClient();
+        var email = $"test-{Guid.NewGuid():N}@example.com";
+        var fields = new[] { ("Email", email), ("Password", Password), ("ConfirmPassword", Password) };
+
+        using (var noToken = await VerifyStatus(client.PostAsync("/Account/Register", null), HttpStatusCode.BadRequest))
+        {
+            Assert.Null(noToken.Headers.Location);
+        }
+
+        using (var invalid = await VerifyStatus(Post(client, "/Account/Register", "/Account/Register",
+            ("Email", "invalid-email"), ("Password", Password), ("ConfirmPassword", CreatePassword())),
+            HttpStatusCode.OK))
+        {
+            var html = await invalid.Content.ReadAsStringAsync();
+            Assert.Contains("not a valid e-mail address", html);
+            Assert.Contains("do not match", html);
+        }
+
+        // Meets the existing complexity rules, but falls short of the new minimum length.
+        var shortPassword = $"Aa!{Random.Shared.Next(10000, 99999)}z";
+        using (var tooShort = await VerifyStatus(Post(client, "/Account/Register", "/Account/Register",
+            ("Email", email), ("Password", shortPassword), ("ConfirmPassword", shortPassword)), HttpStatusCode.OK))
+        {
+            Assert.Contains("Passwords must be at least 12 characters.", await tooShort.Content.ReadAsStringAsync());
+        }
+
+        await using var context = app.CreateContext();
+        Assert.False(await context.Users.AnyAsync(user => user.NormalizedEmail == email.ToUpperInvariant()));
+
+        using var registered = await VerifyStatus(
+            Post(client, "/Account/Register", "/Account/Register", fields), HttpStatusCode.Redirect);
+        using var duplicateClient = NewClient();
+        using var duplicate = await VerifyStatus(Post(duplicateClient, "/Account/Register", "/Account/Register",
+            ("Email", email.ToUpperInvariant()), ("Password", Password), ("ConfirmPassword", Password)),
+            HttpStatusCode.OK);
+        Assert.Contains("Unable to register with this email address.", await duplicate.Content.ReadAsStringAsync());
+
+        var account = await context.Users.SingleAsync(user => user.NormalizedEmail == email.ToUpperInvariant());
+        Assert.NotNull(account.PasswordHash);
+        Assert.NotEqual(Password, account.PasswordHash);
+        Assert.Equal(PasswordVerificationResult.Success,
+            new PasswordHasher<IdentityUser>().VerifyHashedPassword(account, account.PasswordHash, Password));
+    }
+
+    [Fact]
+    public async Task RepeatedFailedLoginsLockTheAccount()
+    {
+        using var owner = NewClient();
+        var email = await Register(owner);
+        using var attacker = NewClient();
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            using var failed = await VerifyStatus(Post(attacker, "/Account/Login", "/Account/Login",
+                ("Email", email), ("Password", CreatePassword())), HttpStatusCode.OK);
+            Assert.Contains("Unable to sign in with these credentials", await failed.Content.ReadAsStringAsync());
+        }
+
+        using var locked = await VerifyStatus(Post(attacker, "/Account/Login", "/Account/Login",
+            ("Email", email), ("Password", Password)), HttpStatusCode.OK);
+        Assert.Contains("Unable to sign in with these credentials", await locked.Content.ReadAsStringAsync());
+        using var forbidden = await VerifyStatus(attacker.GetAsync("/"), HttpStatusCode.Redirect);
+
+        await using var context = app.CreateContext();
+        var account = await context.Users.SingleAsync(user => user.NormalizedEmail == email.ToUpperInvariant());
+        Assert.True(account.LockoutEnd > DateTimeOffset.UtcNow);
     }
 
     [Fact]
@@ -73,6 +156,8 @@ public sealed class ApplicationTests(MySqlFixture app) : IClassFixture<MySqlFixt
         await VerifyStatus(owner.GetAsync(deleteIncome), HttpStatusCode.MethodNotAllowed);
         await VerifyStatus(owner.GetAsync(deleteFixed), HttpStatusCode.MethodNotAllowed);
         await VerifyStatus(owner.PostAsync(deleteIncome, null), HttpStatusCode.BadRequest);
+        await VerifyStatus(owner.PostAsync(regularEdit, null), HttpStatusCode.BadRequest);
+        await VerifyStatus(owner.PostAsync("/Expense/AddExpense", null), HttpStatusCode.BadRequest);
         await VerifyStatus(Post(owner, $"/Income/DeleteIncome/{GetId(fixedEdit)}", "/Income"), HttpStatusCode.NotFound);
         await VerifyStatus(Post(owner, $"/Expense/DeleteFixedExpense/{GetId(regularEdit)}", "/Income"), HttpStatusCode.NotFound);
 
@@ -149,6 +234,8 @@ public sealed class ApplicationTests(MySqlFixture app) : IClassFixture<MySqlFixt
                      "/MonthlyOverview/ExportToExcel" })
             await VerifyStatus(client.GetAsync($"{path}?month=13&year={ReportDate.Year}"), HttpStatusCode.BadRequest);
     }
+
+    private static string CreatePassword() => $"{Guid.NewGuid():N}Aa!7";
 
     private HttpClient NewClient() => app.CreateClient(new WebApplicationFactoryClientOptions
     {

@@ -29,9 +29,12 @@
             </a>
             <partial name="_Navigation" />
             <div class="sidebar-footer">
-                <form asp-controller="Account" asp-action="Logout" method="post">
-                    <button class="nav-entry" type="submit"><partial name="_Icon" model="@("logout")" /> Log out</button>
-                </form>
+                <details class="account-menu">
+                    <summary class="nav-entry"><partial name="_Icon" model="@("account")" /> Account</summary>
+                    <div class="popup-menu">
+                        <partial name="_AccountMenu" />
+                    </div>
+                </details>
             </div>
         </aside>
         <header class="app-header">
@@ -57,8 +60,7 @@
                 <summary><partial name="_Icon" model="@("more")" /> More</summary>
                 <div class="popup-menu">
                     <a asp-controller="Expense" asp-action="FixedExpense">Fixed expenses</a>
-                    <a asp-controller="Settings" asp-action="Index">Settings</a>
-                    <form asp-controller="Account" asp-action="Logout" method="post"><button type="submit">Log out</button></form>
+                    <partial name="_AccountMenu" />
                 </div>
             </details>
         </nav>

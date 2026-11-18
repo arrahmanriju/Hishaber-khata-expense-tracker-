@@ -71,9 +71,12 @@ button, input, select, textarea { font: inherit; }
 .button-secondary:hover { color: var(--accent); background: var(--accent-wash); }
 .button-danger { background: var(--red); color: white; }
 .button-danger:hover { background: #842625; color: white; }
-.quick-add, .mobile-more { position: relative; }
-.quick-add > summary, .mobile-more > summary { list-style: none; cursor: pointer; }
-.quick-add > summary::-webkit-details-marker, .mobile-more > summary::-webkit-details-marker { display: none; }
+.quick-add, .mobile-more, .account-menu { position: relative; }
+:is(.quick-add, .mobile-more, .account-menu) > summary { list-style: none; cursor: pointer; }
+:is(.quick-add, .mobile-more, .account-menu) > summary::-webkit-details-marker { display: none; }
+.account-menu[open] > summary { color: var(--accent); background: var(--accent-wash); }
+.account-menu > .popup-menu { top: auto; bottom: calc(100% + 7px); left: 0; }
+.account-menu-identity { padding: 6px 9px 8px; border-bottom: 1px solid var(--line); font-size: .875rem; overflow-wrap: anywhere; }
 .popup-menu { position: absolute; z-index: 5; right: 0; top: calc(100% + 7px); display: grid; gap: 2px; min-width: 180px; padding: 5px; border: 1px solid var(--line); border-radius: var(--control); background: var(--surface); box-shadow: 0 6px 20px #202b2012; }
 details:not([open]) > .popup-menu { display: none; }
 .popup-menu a, .popup-menu button { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 42px; padding: 7px 9px; background: transparent; border: 0; border-radius: 5px; color: var(--ink); text-decoration: none; text-align: left; font-size: .875rem; }
