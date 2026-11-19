@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using MySqlConnector;
+using Npgsql;
 
 namespace ExpenseTracker.Controllers;
 
@@ -27,7 +27,7 @@ public class AccountController(UserManager<IdentityUser> users, SignInManager<Id
             result = await users.CreateAsync(user, input.Password);
         }
         catch (DbUpdateException exception) when (
-            exception.InnerException is MySqlException { ErrorCode: MySqlErrorCode.DuplicateKeyEntry })
+            exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "UserNameIndex" })
         {
             // The unique username index resolves concurrent registrations for the same email.
             result = IdentityResult.Failed(users.ErrorDescriber.DuplicateUserName(input.Email));

@@ -2,7 +2,7 @@ using ExpenseTracker.Data;
 using ExpenseTracker.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using MySqlConnector;
+using Npgsql;
 
 namespace ExpenseTracker.Controllers;
 
@@ -45,7 +45,7 @@ public class SettingsController(ApplicationDbContext context) : BaseController(c
             await Context.SaveChangesAsync();
         }
         catch (DbUpdateException ex) when (Context.Entry(settings).State == EntityState.Added
-            && ex.InnerException is MySqlException { ErrorCode: MySqlErrorCode.DuplicateKeyEntry })
+            && ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "IX_UserSettings_UserId" })
         {
             // Another request created the settings row while this request was saving.
             Context.Entry(settings).State = EntityState.Detached;
@@ -76,7 +76,7 @@ public class SettingsController(ApplicationDbContext context) : BaseController(c
     {
         settings.UserName = input.UserName;
         settings.Email = input.Email;
-        settings.MonthlyBudget = input.MonthlyBudget;
+        settings.MonthlyBudget = decimal.Round(input.MonthlyBudget, 2);
         settings.Currency = input.Currency;
         settings.CurrencySymbol = input.Currency switch
         {
