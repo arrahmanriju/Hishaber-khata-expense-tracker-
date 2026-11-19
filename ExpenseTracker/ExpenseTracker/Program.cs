@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using MySqlConnector;
+using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,8 +30,9 @@ if (runningOnRender || !string.IsNullOrWhiteSpace(configuredPort)
 builder.Services.AddDbContext<ApplicationDbContext>((services, options) =>
 {
     var configuration = services.GetRequiredService<IConfiguration>();
-    var connection = ReadMySqlConnection(configuration);
-    options.UseMySql(connection.ConnectionString, new MySqlServerVersion(new Version(8, 0)));
+    var connection = ReadPostgresConnection(configuration);
+    options.UseNpgsql(connection.ConnectionString, postgres =>
+        postgres.MigrationsHistoryTable(ApplicationDbContext.PostgreSqlHistoryTable));
 });
 if (builder.Configuration["DataProtection:KeyPath"] is { Length: > 0 } keyPath)
 {
@@ -106,32 +107,18 @@ app.MapControllerRoute(
 
 app.Run();
 
-static MySqlConnectionStringBuilder ReadMySqlConnection(IConfiguration configuration)
+static NpgsqlConnectionStringBuilder ReadPostgresConnection(IConfiguration configuration)
 {
-    var value = configuration.GetConnectionString("DefaultConnection")
-        ?? configuration["MYSQL_URL"]
-        ?? configuration["DATABASE_URL"];
+    var value = configuration.GetConnectionString("DefaultConnection");
     if (string.IsNullOrWhiteSpace(value))
     {
-        throw new InvalidOperationException("Configure ConnectionStrings:DefaultConnection or MYSQL_URL.");
+        throw new InvalidOperationException("Configure ConnectionStrings:DefaultConnection for PostgreSQL.");
     }
 
-    MySqlConnectionStringBuilder connection;
-    if (Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme == "mysql")
+    var connection = new NpgsqlConnectionStringBuilder(value);
+    if (string.IsNullOrWhiteSpace(connection.Host) || string.IsNullOrWhiteSpace(connection.Database))
     {
-        var credentials = uri.UserInfo.Split(':', 2);
-        connection = new MySqlConnectionStringBuilder
-        {
-            Server = uri.Host,
-            Port = (uint)(uri.IsDefaultPort ? 3306 : uri.Port),
-            Database = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/')),
-            UserID = Uri.UnescapeDataString(credentials[0]),
-            Password = credentials.Length == 2 ? Uri.UnescapeDataString(credentials[1]) : ""
-        };
-    }
-    else
-    {
-        connection = new MySqlConnectionStringBuilder(value);
+        throw new InvalidOperationException("Specify the PostgreSQL host and database in the connection string.");
     }
 
     var caPath = configuration["Database:CaCertificatePath"];
@@ -142,17 +129,13 @@ static MySqlConnectionStringBuilder ReadMySqlConnection(IConfiguration configura
             throw new InvalidOperationException("Database:CaCertificatePath must point to an existing absolute PEM file.");
         }
 
-        connection.SslCa = caPath;
+        connection.RootCertificate = caPath;
     }
 
     if (configuration.GetValue<bool>("RENDER") || configuration.GetValue<bool>("Database:RequireTls")
         || !string.IsNullOrWhiteSpace(caPath))
     {
-        connection.SslMode = MySqlSslMode.VerifyFull;
-        if (string.IsNullOrWhiteSpace(connection.Database))
-        {
-            throw new InvalidOperationException("Specify the MySQL database name in the connection string.");
-        }
+        connection.SslMode = SslMode.VerifyFull;
     }
 
     return connection;

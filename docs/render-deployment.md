@@ -1,107 +1,84 @@
-# Deploy Hishaber Khata to Render
+# Deploy Hishaber Khata to Render with Neon PostgreSQL
 
-This repository contains the .NET 8 MVC app at `ExpenseTracker/ExpenseTracker/ExpenseTracker.csproj`, with the solution one level above it. Render builds the root `Dockerfile` with the .NET 8 SDK and runs the published app on the .NET 8 ASP.NET runtime as a non-root user. The ASP.NET Core app and MySQL database run as separate services.
+## Connect from local development
 
-## 1. Provision MySQL 8
+In Neon, open your project's **Connect** dialog and select the branch, database, and role. Copy the DNS hostname, database name, and role name. Use port `5432` and obtain the role password from the dialog. If the dialog offers a .NET format, select it. Otherwise, use those values to assemble the Npgsql string shown below. Use a development branch for local CRUD checks and disable pooling when preparing the schema-migration connection. [Neon connection guide](https://neon.com/docs/connect/connect-from-any-app)
 
-- Create a durable MySQL 8 database reachable from Render. Use the provider's DNS hostname that appears on its TLS certificate. The laptop's `localhost` points to the container when used on Render.
-- Use separate database accounts. Give the web app account `SELECT`, `INSERT`, `UPDATE`, and `DELETE` on the application schema. Use a separate account with schema-migration privileges when upgrading the database.
-- If the database firewall restricts addresses, allow the web service's outbound ranges from **Connect → Outbound** in Render. Also allow the host from which you will run migrations. Render's regional outbound ranges are shared, so keep database authentication and TLS in place. [Render outbound IP addresses](https://render.com/docs/outbound-ip-addresses)
-- Rotate the old database password if it is still active. Earlier commits contained a credential, and changing the current file does not remove those commits from Git history.
-
-## 2. Initialize or upgrade the schema
-
-Run EF from a trusted machine or CI runner with the .NET 8 SDK and MySQL access. Render's free service lacks shell access. The Docker image starts the web process without applying migrations. Use a backup and rehearse the upgrade on a restored copy before changing an existing database. [Render free service limits](https://render.com/docs/free)
-
-From the repository root in a fresh VS Code PowerShell terminal:
+The project already declares a `UserSecretsId`. From the repository root, enter the complete Npgsql string at the masked prompt. The value is written to the existing user-secret key for Development.
 
 ```powershell
-$project = '.\ExpenseTracker\ExpenseTracker\ExpenseTracker.csproj'
-dotnet tool restore
-if ($LASTEXITCODE -ne 0) { throw 'EF tool restore failed.' }
+$project = './ExpenseTracker/ExpenseTracker/ExpenseTracker.csproj'
+$neonSecret = Read-Host 'Enter the Npgsql development connection string' -AsSecureString
+try {
+    @{ 'ConnectionStrings:DefaultConnection' = [System.Net.NetworkCredential]::new('', $neonSecret).Password } |
+        ConvertTo-Json -Compress |
+        dotnet user-secrets set --project $project
+    if ($LASTEXITCODE -ne 0) { throw 'Could not save the development connection.' }
+} finally {
+    Remove-Variable neonSecret
+}
+dotnet build $project
+dotnet run --project $project --launch-profile http
+```
 
-$secret = Read-Host 'Enter the MySQL migration connection string' -AsSecureString
+An environment variable named `ConnectionStrings__DefaultConnection` takes precedence over the development secret. Before running CRUD checks, initialize the development database using the direct connection procedure below.
+
+## Provision Neon and prepare the schema
+
+Create a Neon database in a region close to Render. In the Neon Connect dialog, choose the intended branch, database, and role. Use the direct hostname for EF migrations. The runtime can use the direct hostname or Neon's pooled hostname. Use a schema owner for migrations and give the runtime role the database connection, schema usage, table DML, and identity-sequence privileges it needs. [Neon connection guide](https://neon.com/docs/guides/dotnet-npgsql) · [Neon pooling](https://neon.com/docs/connect/connection-pooling)
+
+Configure a native Npgsql connection string. Enter the decoded credential value and quote it if it contains connection-string delimiters.
+
+```text
+Host=<neon-hostname>;Port=5432;Database=<database>;Username=<role>;Password=<password>;SSL Mode=VerifyFull
+```
+
+From the repository root, generate a reviewable script using a placeholder connection. This command does not contact Neon.
+
+```powershell
+$project = './ExpenseTracker/ExpenseTracker/ExpenseTracker.csproj'
+dotnet tool restore
+$env:ConnectionStrings__DefaultConnection = 'Host=localhost;Database=design_only'
+$script = Join-Path $env:TEMP 'hishaber-postgresql.sql'
+dotnet tool run dotnet-ef -- migrations script 0 --idempotent --project $project --output $script -- --environment Production
+Remove-Item Env:ConnectionStrings__DefaultConnection
+```
+
+Review the script and confirm the Neon branch and database. Apply it to an empty database or one already managed by this PostgreSQL migration history. If application tables exist without the baseline history entry, stop and reconcile the schema and history before applying migrations. Apply schema changes separately from the Render deployment. If existing MySQL records are needed, follow the [approved data copy procedure](../README.md#preserve-existing-mysql-records) before cutover.
+
+```powershell
+$secret = Read-Host 'Enter the direct Neon migration connection string' -AsSecureString
 $env:ConnectionStrings__DefaultConnection = [System.Net.NetworkCredential]::new('', $secret).Password
 $env:Database__RequireTls = 'true'
-# Only when the database provider supplies a private CA, uncomment and set its local PEM path.
-# $env:Database__CaCertificatePath = 'C:\path\to\mysql-ca.pem'
-
-dotnet tool run dotnet-ef -- migrations list --project $project -- --environment Production
-if ($LASTEXITCODE -ne 0) { throw 'Could not read migration history.' }
-```
-
-Enter a connection string using the migration account and the intended database. Use the format in Step 3. Set `$fromMigration` to `0` for a fresh, empty schema. For an existing schema, use the latest migration EF reports as applied. The pre-Identity baseline is `20260118182451_AddUserSettings`, and the latest migration in this repository is `20261118200857_AddIdentityAndOwnership`. If the schema already has application tables but lacks EF migration history, reconcile the schema and history before proceeding.
-
-```powershell
-$fromMigration = '0' # Replace with the last applied migration for an existing database.
-$scriptPath = Join-Path $env:TEMP 'hishaber-khata-forward-migration.sql'
-dotnet tool run dotnet-ef -- migrations script $fromMigration --project $project --output $scriptPath -- --environment Production
-if ($LASTEXITCODE -ne 0) { throw 'Could not generate the migration script.' }
-```
-
-Review the generated SQL. The forward migrations create tables and add columns, indexes, and foreign keys. The Identity migration preserves legacy transactions and settings with a nullable owner. For an existing service, pause writes while upgrading. MySQL schema operations can commit independently, so investigate any partially applied migration before retrying. Keep legacy rows unassigned until a reviewed ownership assignment has been approved. See the [legacy ownership procedure](../README.md#assign-legacy-transactions-and-settings).
-
-After reviewing the script and confirming the target database, apply the pending forward migrations and check the result:
-
-```powershell
 try {
+    dotnet tool run dotnet-ef -- migrations list --project $project -- --environment Production
+    if ($LASTEXITCODE -ne 0) { throw 'Could not inspect migration history.' }
+    $confirm = Read-Host 'After confirming the target and migration history, type APPLY to proceed'
+    if ($confirm -cne 'APPLY') { throw 'Schema migration cancelled.' }
     dotnet tool run dotnet-ef -- database update --project $project -- --environment Production
-    if ($LASTEXITCODE -ne 0) { throw 'Migration failed. Check the database state before retrying.' }
-
+    if ($LASTEXITCODE -ne 0) { throw 'Schema migration failed.' }
     dotnet tool run dotnet-ef -- migrations list --project $project -- --environment Production
     if ($LASTEXITCODE -ne 0) { throw 'Could not verify migration history.' }
 } finally {
-    Remove-Item Env:ConnectionStrings__DefaultConnection, Env:Database__RequireTls, Env:Database__CaCertificatePath -ErrorAction SilentlyContinue
-    Remove-Variable secret -ErrorAction SilentlyContinue
+    Remove-Item Env:ConnectionStrings__DefaultConnection, Env:Database__RequireTls
+    Remove-Variable secret
 }
 ```
 
-For an existing database, compare row counts and financial totals with your backup and check the migrations are all applied. Keep the rollback plan based on a verified backup and a separately approved recovery. The EF `Down` migrations can remove tables and ownership information.
+## Configure the Render web service
 
-## 3. Create the Render Free Web Service
-
-1. Open the [Render Dashboard](https://dashboard.render.com/), choose **New → Web Service**, and connect the GitHub repository `arrahmanriju/Hishaber-khata-expense-tracker-`.
-2. Choose the branch containing the deployment changes, normally `main` after merging. Set **Language** to **Docker** and **Instance Type** to **Free**. Choose a region close to your database.
-3. Leave **Root Directory** empty so the build context is the repository root. Use `./Dockerfile` for **Dockerfile Path** and leave **Docker Command** blank. The image starts the app through its default entrypoint. [Render Docker setup](https://render.com/docs/docker)
-4. Set **Health Check Path** to `/health` under the service settings. It returns an anonymous HTTP 200 when the web process is responding. Use a separate sign-in and transaction check for database readiness. [Render health checks](https://render.com/docs/health-checks)
-5. Add the following values in the Render **Environment** panel before deploying. Store production credentials only in Render's runtime environment or secret files. [Render environment variables and secrets](https://render.com/docs/configure-environment-variables)
+Create a Docker Web Service from the repository. Leave the root directory and Docker command blank, use `./Dockerfile`, and set the health check path to `/health`. [Render Docker setup](https://render.com/docs/docker) · [Render health checks](https://render.com/docs/health-checks)
 
 | Variable | Value |
 | --- | --- |
-| `ASPNETCORE_ENVIRONMENT` | `Production`. This is also the image default. |
-| `PORT` | `10000`. Render supplies this default. Change it only if both the service and listener should use another port. |
-| `ConnectionStrings__DefaultConnection` | The runtime MySQL account connection string. See the example below. |
-| `Database__CaCertificatePath` | Optional. Set `/etc/secrets/mysql-ca.pem` if the provider requires a private CA. Upload the provider's CA PEM as a Render Secret File named `mysql-ca.pem`. |
-| `Database__RequireTls` | Optional on Render. TLS verification is already enforced there. Set `true` on another host or a migration workstation to require the same policy. |
-| `DataProtection__KeyPath` | Leave unset on Free. See the persistent-key option below. |
+| `ASPNETCORE_ENVIRONMENT` | `Production` |
+| `ConnectionStrings__DefaultConnection` | The runtime role's Npgsql connection string, stored as an environment secret |
+| `PORT` | Render's HTTP port, typically `10000` |
+| `Database__CaCertificatePath` | Optional absolute path to a PEM file when using a private CA |
+| `DataProtection__KeyPath` | Optional absolute app-writable path on a persistent disk |
 
-```text
-Server=<provider DNS hostname>;Port=3306;Database=<database name>;User ID=<runtime user>;Password=<runtime password>;SslMode=VerifyFull;
-```
+On Render the app binds to `0.0.0.0`, consumes the forwarded HTTPS scheme, and enforces PostgreSQL TLS certificate and hostname validation. Use the Neon DNS hostname for TLS. Set `Database__RequireTls=true` on other hosts to enforce the same validation. The web process leaves schema migrations to the deployment operator. [Npgsql TLS modes](https://www.npgsql.org/doc/security.html) · [Render environment secrets](https://render.com/docs/configure-environment-variables)
 
-Use the provider's port if it differs. A password containing connection-string delimiters must be quoted within its value. Render automatically sets `RENDER=true`. On Render the app binds to `0.0.0.0`, enforces TLS with certificate and hostname validation, and uses Render's forwarded HTTPS scheme. It relies on Render's edge for HTTP-to-HTTPS redirects. The app only consumes the scheme header and does not use forwarded client IP or host headers. Leave `RENDER` unset for directly exposed or non-Render deployments. [Render port and TLS behavior](https://render.com/docs/web-services) · [MySqlConnector TLS settings](https://mysqlconnector.net/connection-options/)
+Deploy and confirm that `/health` returns HTTP 200 and that an anonymous visit to the dashboard redirects to login. Health checks the web process. Run the [PostgreSQL browser checks](../README.md#verify-postgresql) on a staging deployment to exercise the database, TLS, and application data paths.
 
-## 4. Deploy and verify
-
-1. Deploy and check the logs for a listener on `0.0.0.0:10000`.
-2. Visit `https://<service-name>.onrender.com/health` and confirm HTTP 200. Verify the HTTPS site redirects an anonymous visitor to the login page.
-3. Register a test account, sign in, add and edit a test transaction, and verify that a second account cannot see it. This exercises the TLS connection and migration as well as application startup.
-4. If health passes but sign-in or a dashboard query fails, check the application logs for a missing migration, MySQL credentials, firewall connectivity, or certificate errors. Correct the database hostname or CA if certificate verification fails.
-
-### Sign-in sessions on the Free plan
-
-The free web service spins down when idle and loses local filesystem changes on spin-down, restart, or redeploy. The default ASP.NET Core Data Protection key ring lives on that filesystem. Users may need to sign in again after a restart, and an open form may need to be reloaded. Accounts and financial records live in MySQL. [Render free filesystem behavior](https://render.com/docs/free#local-files-lost-on-redeploy)
-
-On a deployment with a persistent disk, set `DataProtection__KeyPath` to an absolute, app-writable directory on that disk, such as `/var/data/hishaber-keys`. Restrict access to the app's container user (UID 1654) and protect the disk and backups. File persistence alone does not encrypt key XML. Services sharing the key ring should use the same application name and guard the keys as credentials. [ASP.NET Core Data Protection configuration](https://learn.microsoft.com/en-us/aspnet/core/security/data-protection/configuration/overview?view=aspnetcore-8.0)
-
-### Local Docker smoke check
-
-These commands check the port, health endpoint, and anonymous redirect with an intentionally fake database connection. They do not initialize MySQL.
-
-```powershell
-docker build -f Dockerfile -t hishaber-khata:local .
-$env:ConnectionStrings__DefaultConnection = 'Server=localhost;Database=smoke_check;User ID=smoke_check;'
-docker run --rm -p 127.0.0.1:10000:10000 --env ConnectionStrings__DefaultConnection hishaber-khata:local
-```
-
-In a second terminal, run `curl.exe --fail http://127.0.0.1:10000/health`. Stop the smoke-test container with **Ctrl+C** and clear the placeholder using `Remove-Item Env:ConnectionStrings__DefaultConnection`.
+On Render Free, the local Data Protection key ring can be lost on restart or redeploy, requiring users to sign in again. With persistent storage, set `DataProtection__KeyPath` to an app-writable directory such as `/var/data/hishaber-keys` and restrict access to the container user (UID 1654). [Render Free filesystem behavior](https://render.com/docs/free#local-files-lost-on-redeploy)

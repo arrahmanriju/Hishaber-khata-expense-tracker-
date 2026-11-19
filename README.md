@@ -1,6 +1,6 @@
 # Expense Tracker 💰
 
-A personal finance web app built with ASP.NET Core MVC and MySQL to record income and expenses, track a monthly budget, and export monthly reports to Excel.
+A personal finance web app built with ASP.NET Core MVC and PostgreSQL to record income and expenses, track a monthly budget, and export monthly reports to Excel.
 
 ---
 
@@ -29,14 +29,14 @@ flowchart LR
     B[Browser] --> C[MVC Controllers]
     C --> V[Razor Views]
     C --> E[EF Core DbContext]
-    E --> M[(MySQL)]
+    E --> M[(PostgreSQL)]
     C --> X[ClosedXML Excel Export]
     V --> J[Chart.js Charts]
 ```
 
 - The app follows the **MVC** pattern: controllers handle requests, Razor views render pages, and models map to database tables.
 - `BaseController` loads the user's currency settings and passes them to every view.
-- Entity Framework Core talks to MySQL through `ApplicationDbContext`, with schema changes managed by migrations.
+- Entity Framework Core talks to PostgreSQL through `ApplicationDbContext`, with schema changes managed by migrations.
 - Charts are drawn in the browser with Chart.js from data prepared by the controllers.
 
 ## Database (ERD)
@@ -55,7 +55,7 @@ erDiagram
         string Category
         decimal Amount
         string Description "nullable"
-        datetime Date
+        date Date
         bool IsFixed
         datetime CreatedAt
     }
@@ -80,8 +80,8 @@ ASP.NET Core Identity stores accounts in the same database. Both tables carry an
 |---|---|
 | Framework | ASP.NET Core MVC (.NET 8) |
 | Language | C# |
-| Database | MySQL |
-| ORM | Entity Framework Core 8 with Pomelo MySQL provider |
+| Database | PostgreSQL |
+| ORM | Entity Framework Core 8 with Npgsql |
 | Frontend | Razor views, Bootstrap, jQuery, Chart.js |
 | Excel export | ClosedXML |
 | Icons | Font Awesome |
@@ -107,57 +107,71 @@ ExpenseTracker/
     ├── Migrations/                    # EF Core migrations
     ├── Views/                         # Razor views per controller
     ├── wwwroot/                       # CSS, JS, static libraries
-    ├── appsettings.json               # Connection string
+    ├── appsettings.json               # Logging configuration
     └── Program.cs
 ```
 
 ## Run locally from VS Code
 
-Install the .NET 8 SDK and start MySQL 8. From the repository root in PowerShell, configure a local database account and run:
+Install the .NET 8 SDK. Use an empty PostgreSQL database on a local server, or start PostgreSQL 16 with Docker from the repository root in PowerShell.
 
 ```powershell
-$project = '.\ExpenseTracker\ExpenseTracker\ExpenseTracker.csproj'
-$db = Get-Credential -Message 'Enter your MySQL username and password'
-$connection = [System.Data.Common.DbConnectionStringBuilder]::new()
-$connection['Server'] = '127.0.0.1'
-$connection['Database'] = 'ExpenseDB'
-$connection['User ID'] = $db.UserName
-$connection['Password'] = $db.GetNetworkCredential().Password
-@{ 'ConnectionStrings:DefaultConnection' = $connection.ConnectionString } |
+$env:POSTGRES_PASSWORD = [Guid]::NewGuid().ToString('N')
+docker run -d --name hishaber-postgres -p 127.0.0.1:5432:5432 `
+    -e POSTGRES_PASSWORD -e POSTGRES_DB=expense_tracker `
+    -v hishaber-postgres-data:/var/lib/postgresql/data postgres:16
+docker logs hishaber-postgres
+```
+
+Wait for PostgreSQL to accept connections. Record the generated password in your local secret configuration while it is available in the shell. For an installed PostgreSQL server, supply the host, port, database, username, and password for that server.
+
+```powershell
+$project = './ExpenseTracker/ExpenseTracker/ExpenseTracker.csproj'
+$connection = "Host=127.0.0.1;Port=5432;Database=expense_tracker;Username=postgres;Password=$env:POSTGRES_PASSWORD"
+@{ 'ConnectionStrings:DefaultConnection' = $connection } |
     ConvertTo-Json -Compress |
     dotnet user-secrets set --project $project
+Remove-Item Env:POSTGRES_PASSWORD
+Remove-Variable connection
 dotnet tool restore
 dotnet tool run dotnet-ef -- database update --project $project -- --environment Development
 dotnet run --project $project
 ```
 
-Open <http://localhost:8080> and register an account. Run the migration with an account permitted to modify the schema. Use a least-privilege account for the running application wherever migration privileges can be separated.
+Open <http://localhost:8080> and register an account. You can also set the `ConnectionStrings__DefaultConnection` environment variable to a native Npgsql connection string. Apply migrations separately using a schema owner. The web application does not apply them at startup.
 
-### Verify Phase 1
+### Verify PostgreSQL
 
-The integration tests use MySQL 8. Set `EXPENSETRACKER_TEST_MYSQL` to the connection string for a test-only server with permission to create schemas. The suite creates two uniquely named `expense_tracker_test_*` schemas per run and leaves them available for inspection.
+Set `EXPENSETRACKER_TEST_POSTGRESQL` to a native Npgsql connection string for an isolated PostgreSQL test server. The test role needs permission to create databases. The suite creates a uniquely named `expense_tracker_test_*` database and leaves it available for inspection. Use a disposable server for test runs.
 
 ```powershell
-$project = '.\ExpenseTracker\ExpenseTracker\ExpenseTracker.csproj'
-$solution = '.\ExpenseTracker\ExpenseTracker.sln'
-dotnet tool restore
-dotnet build $solution
+$solution = './ExpenseTracker/ExpenseTracker.sln'
+dotnet restore $solution
+dotnet build $solution --no-restore
 dotnet test $solution --no-build -- RunConfiguration.TreatNoTestsAsError=true
 dotnet tool run dotnet-ef -- migrations has-pending-model-changes --project $project -- --environment Development
-dotnet tool run dotnet-ef -- migrations script 20260118182451_AddUserSettings --project $project --output "$env:TEMP/expense-tracker-phase1.sql" -- --environment Development
 ```
 
-### Upgrade an existing database
+For a browser check, use two test accounts and a fresh database.
 
-Back up your database and rehearse the upgrade against a restored copy. The migration adds Identity tables, nullable owner columns, foreign keys, and indexes. Existing IDs, transaction values, and settings remain in place. Rows with a null owner are hidden from signed-in users. Assign legacy rows only after confirming ownership and reviewing a repeatable backfill for the intended account.
+1. Register account A, sign out, and sign back in. Confirm the password and account survive a restart.
+2. In the current month, create income of 100.50 and a fixed expense of 30.25. Edit the expense to 25.25 and verify the change in the fixed-expense list and monthly overview.
+3. Check dashboard income of 100.50, expenses of 25.25, and a balance of 75.25. Set a monthly budget of 100 and confirm spending of 25.25, remaining budget of 74.75, and usage of 25.25%.
+4. Export the month to Excel. Compare the summary and transaction rows with the dashboard and monthly overview.
+5. Register account B in a separate browser session. Verify its dashboard, ledger, settings, and export are scoped to B. Try opening A's transaction edit URL and submitting an edit as B. Confirm A's data stays intact.
+6. Return to account A, delete the fixed expense and income, and confirm the dashboard, budget, and report reflect the deletions.
 
-During rollout, take the old app offline before applying the reviewed migration. Verify row counts, totals, and ownership on the restored copy before applying the migration to the live database.
+### Preserve existing MySQL records
 
-### Assign legacy transactions and settings
+The four original migrations and snapshot are archived under `ExpenseTracker/Migrations/MySql` outside the web project. EF runs the separate PostgreSQL baseline under the web project's `Migrations/PostgreSql` and records it in `__EFMigrationsHistoryPostgreSql`. The baseline creates the schema for a fresh database.
 
-Confirm the destination account with the data owner and resolve its sign-in email to its Identity user ID. Prepare a reviewed list of unassigned transaction IDs and settings row IDs for each destination account. Record transaction counts and totals for each group before asking the data owner to approve the assignment. A new registration grants access only to records owned by that account.
+If existing records are needed, agree on a copy plan with the data owner and **obtain explicit approval before any import, deletion, or modification of existing records**, including ownership backfills.
 
-Back up the database and rehearse the approved assignment on a restored copy. Apply the assignments in a separate transaction that updates only rows whose owner is still null. If an account already has settings, preserve both records and resolve the conflict explicitly before assigning the legacy settings row. Check that the updated counts and totals match the approved list and that other accounts see only their own data. Keep ambiguous records unassigned.
+1. Identify the source schema version and take a consistent MySQL backup. Capture row counts, ownership counts, and exact income, expense, and budget totals by user and month. Record which rows predate Identity.
+2. Rehearse the approved copy into an isolated PostgreSQL database initialized with the baseline. Export using a read-only MySQL account. Keep exported personal data and Identity hashes in restricted storage.
+3. Load into staging and validate conversions before inserting into application tables. Preserve Identity IDs, normalized credentials, password hashes, security stamps, and dependent Identity rows if present. Load users and roles before dependent records. Keep transaction and settings IDs, map booleans to PostgreSQL booleans, copy transaction calendar dates and wall-clock audit timestamps, and treat Identity lockout timestamps as UTC. Flag zero or invalid dates, time components on transaction dates, duplicate normalized identities, orphaned foreign keys, multiple settings rows for an owner, noncanonical transaction types or currency codes, and amounts outside the .NET decimal range. PostgreSQL uses exact `numeric` without a fixed scale, and application forms continue to accept up to two decimal places. Strip trailing fractional zeros from exported MySQL decimals, verify each value and its report totals can round-trip through .NET decimal, and preserve UTF-8 text.
+4. Keep ownerless rows unassigned until ownership is approved. Compare row counts, IDs, NULL owners, decimal totals, and per-user reports. After inserting explicit IDs, reset the PostgreSQL sequences for transactions, settings, and Identity claims to continue above the maximum imported IDs. Test sign-in with a consenting migrated account and verify new writes receive fresh IDs.
+5. At cutover, pause writes, repeat the verified copy from a consistent source, reconcile the same checks, then switch Render to PostgreSQL. Keep the MySQL backup and deployment configuration for recovery. If PostgreSQL has accepted writes, reconcile those writes before switching back.
 
 ## API Overview
 
@@ -183,12 +197,12 @@ This is a server-rendered MVC app, so it exposes pages and form actions rather t
 
 ## Deployment
 
-For a Render Free Docker Web Service, follow the [Render deployment guide](docs/render-deployment.md) for MySQL TLS setup, environment variables, database initialization, and session persistence.
+For a Render Free Docker Web Service, follow the [Render deployment guide](docs/render-deployment.md) for Neon TLS setup, environment variables, database initialization, and session persistence.
 
 ### Other hosts
 
 1. Build the existing Dockerfile for Railway, or publish with `dotnet publish -c Release`.
-2. Configure `ConnectionStrings__DefaultConnection` as a deployment secret. Railway's `MYSQL_URL` is also supported. Use a least-privilege database account for runtime and rotate any credential previously stored in the repository.
+2. Configure `ConnectionStrings__DefaultConnection` as a deployment secret. Use a least-privilege database account for runtime and rotate any credential previously stored in the repository.
 3. Apply the reviewed migration separately with a deployment credential. The app starts without applying migrations automatically.
 4. Serve the app over HTTPS and use `/health` for the host health probe. Persist ASP.NET Core Data Protection keys across restarts where users need sessions to survive redeployment.
 

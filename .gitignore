@@ -1,8 +1,11 @@
 # Local configuration, credentials, and database backups
 .env
 .env.*
+.envrc
 secrets/
 secrets.json
+*.secrets.json
+.secrets/
 appsettings.Local.json
 appsettings.*.local.json
 *.pem

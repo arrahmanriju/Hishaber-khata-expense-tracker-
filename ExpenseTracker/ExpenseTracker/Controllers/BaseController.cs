@@ -60,7 +60,7 @@ namespace ExpenseTracker.Controllers
         protected static void ApplyTransactionInput(Transaction transaction, TransactionInput input)
         {
             transaction.Category = input.Category;
-            transaction.Amount = input.Amount!.Value;
+            transaction.Amount = decimal.Round(input.Amount!.Value, 2);
             transaction.Description = input.Description;
             transaction.Date = input.Date!.Value.Date;
             transaction.IsFixed = transaction.Type == "Expense" && input.IsFixed;

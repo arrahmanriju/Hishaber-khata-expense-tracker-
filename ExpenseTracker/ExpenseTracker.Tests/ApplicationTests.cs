@@ -11,7 +11,7 @@ using Xunit;
 
 namespace ExpenseTracker.Tests;
 
-public sealed class ApplicationTests(MySqlFixture app) : IClassFixture<MySqlFixture>
+public sealed class ApplicationTests(PostgreSqlFixture app) : IClassFixture<PostgreSqlFixture>
 {
     private static readonly string Password = CreatePassword();
     private static readonly DateTime ReportDate = DateTime.Today;
